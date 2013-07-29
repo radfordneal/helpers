@@ -1240,11 +1240,11 @@ void helpers_do_task
 
         if (needed != 0) mark_as_needed (uinfo, needed);       
       }
-    }
 
-    /* Wait for the tasks marked as needed above to start or complete. */
+      /* Wait for the tasks marked as needed above to start or complete. */
   
-    wait_while_any_needed();
+      wait_while_any_needed();
+    }
   }
 
   else /* not master-now */
