@@ -985,6 +985,8 @@ vectors are defined:
   HELPERS_SETUP_OUT (pow2)
   HELPERS_NEXT_OUT (i)
   HELPERS_BLOCK_OUT (i, k)
+  HELPERS_UP_TO (i, a)
+  HELPERS_UP_TO2 (i, a1, a2)
 
   HELPERS_WAIT_IN0 (avail, prev, length)
   HELPERS_WAIT_IN1 (avail, prev, length)
