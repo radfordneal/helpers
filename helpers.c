@@ -429,7 +429,7 @@ static void trace_flags (int flags)
   else if ((flags & HELPERS_MERGE_OUT)) helpers_printf(" MERGE_OUT");
 
   if ((flags & HELPERS_PIPE_IN012_OUT) != 0)
-  { helpers_printf ((flags & HELPERS_PIPE_IN012) != 0 ? " PIPE_IN" : "PIPE");
+  { helpers_printf ((flags & HELPERS_PIPE_IN012) != 0 ? " PIPE_IN" : " PIPE");
     if (flags & HELPERS_PIPE_IN0) helpers_printf("0");
     if (flags & HELPERS_PIPE_IN1) helpers_printf("1");
     if (flags & HELPERS_PIPE_IN2) helpers_printf("2");
