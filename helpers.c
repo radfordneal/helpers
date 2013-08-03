@@ -53,7 +53,7 @@
    increasing overhead (more for 3 than 2) even when tracing is not enabled. */
 
 #ifndef ENABLE_TRACE   /* Allow value from compile option to override below's */
-#define ENABLE_TRACE 3 /* 0, 1, 2, or 3 for no, normal, extra... trace output */
+#define ENABLE_TRACE 1 /* 0, 1, 2, or 3 for no, normal, extra... trace output */
 #endif
 
 
