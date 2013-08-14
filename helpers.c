@@ -253,7 +253,7 @@ static union task_entry
 
     tix pipe_at_start[3];          /* Value of "pipe" when task is started */
     helpers_size_t first_amt[3];   /* First non-zero value from helpers_availN*/
-    helpers_size_t last_amt[3];    /* Last value from helpers_amount */
+    helpers_size_t last_amt[3];    /* Last value from helpers_amount_out */
 
     /* The fields below are used only when ENABLE_TRACE is 3. */
 
