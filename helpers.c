@@ -1421,6 +1421,8 @@ void helpers_do_task
             }
             else /* flags & HELPERS_MASTER_NOW */
             { 
+              int w;
+
               m->flags |= HELPERS_MASTER_NOW;
               if (trace) 
               { trace_merged (pipe0, flags, task_to_do, op, out, in1, in2);
@@ -1458,10 +1460,11 @@ void helpers_do_task
 #             endif
 
 #             ifdef helpers_mark_not_in_use
-                for (int w = 1; w<=2; w++)
+                for (w = 1; w<=2; w++)
                 { helpers_var_ptr v = m->var[w];
                   if (v!=null && v!=m->var[0])
-                  { for (int j = 0; j<helpers_tasks; j++)
+                  { int j;
+                    for (j = 0; j<helpers_tasks; j++)
                     { struct task_info *einfo = &task[used[j]].info;
                       if (einfo->var[0]!=v 
                            && (einfo->var[1]==v || einfo->var[2]==v))
