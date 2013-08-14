@@ -978,13 +978,12 @@ static void notice_completed (void)
   
       /* Unset the in-use and being-computed flags as appropriate, if the 
          application defined the required macros.  This requires scanning
-         all other current tasks to see if some other task is still using
-         or computing the variable. */
+         other tasks to see if one is still using or computing the variable. */
   
 #     ifdef helpers_mark_not_being_computed
         v = info->var[0];
         if (v!=null)
-        { for (j = 0; j<helpers_tasks; j++)
+        { for (j = i+1; j<helpers_tasks; j++)
           { struct task_info *einfo = &task[used[j]].info;
             if (einfo->var[0]==v) 
             { goto done_c;
@@ -1002,7 +1001,10 @@ static void notice_completed (void)
           { for (j = 0; j<helpers_tasks; j++)
             { struct task_info *einfo = &task[used[j]].info;
               if (einfo->var[0]!=v && (einfo->var[1]==v || einfo->var[2]==v))
-              { goto done_u;
+              { ATOMIC_READ_CHAR (d = einfo->done);
+                if (!d) 
+                { goto done_u;
+                }
               }
             }
             helpers_mark_not_in_use(v);
