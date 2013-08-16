@@ -1855,8 +1855,8 @@ void helpers_start_computing_var (helpers_var_ptr v)
 
   /* If computing v does not require running a master-only task, loop until
      the computation of v has started (in which case return), or it looks 
-     like no helpers are idle.  It is possible that it will look like no 
-     helpers are idle when actually one is (since a helper might quickly
+     like no helpers are idle.  It is possible that it will look like a
+     helper is idle when actually none are (since a helper might quickly
      finish a task and start on a new one), but it should not be possible for 
      the loop to continue for very long when there are no idle helpers. */
 
@@ -2231,7 +2231,7 @@ int helpers_idle (void)
   int i, c;
   hix h;
 
-  if (helpers_are_disabled) return 0;
+  if (helpers_not_multithreading) return 0;
 
   notice_completed();
 
