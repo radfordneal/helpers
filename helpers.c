@@ -1476,13 +1476,15 @@ void helpers_do_task
 
           int j;
 
+          m->flags |= HELPERS_MASTER_NOW;
+
           if (trace) 
           { trace_merged (pipe0, flags0, task_to_do, op, out, in1, in2);
           }
 
           /* Replace arguments of this function by merged task's values. */
 
-          flags      = m->flags | HELPERS_MASTER_NOW;
+          flags      = m->flags;
           task_to_do = m->task_to_do;
           op         = m->op;
           in1        = m->var[1];
@@ -2532,7 +2534,7 @@ void helpers_startup (int n)
   which_suspends = which_wakes = 0;
   suspend_initialized = 0;
 
-  #pragma omp parallel num_threads(n+1)
+  #pragma omp parallel num_threads(helpers_num+1)
   {
     this_thread = omp_get_thread_num();
 
