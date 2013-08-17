@@ -436,18 +436,19 @@ scheduled until the master-now task has finished.  However, scheduling
 a master-now task with pipelined inputs may be useful.
 
 Pipelining can be disabled by calling helpers_no_pipelining with
-argument 1 (can be re-enabled by calling helpers_no_pipelining with
-argument 0).  When pipelining is disabled, the HELPERS_PIPE_OUT flag
-will be disregarded when a task is scheduled.  (Existing tasks are not
-affected.)  Disabling pipelining slightly decreases overhead for tasks
-scheduled with HELPERS_PIPE_OUT, when no process is receiving the
-piped output, and may also be desirable when the number of helper
+argument 1 (and can be re-enabled by calling helpers_no_pipelining
+with argument 0).  When pipelining is disabled, the HELPERS_PIPE_OUT
+flag will be disregarded when a task is scheduled.  (Existing tasks
+are not affected.)  Disabling pipelining slightly decreases overhead
+for tasks scheduled with HELPERS_PIPE_OUT when no process is receiving
+the piped output, and may also be desirable when the number of helper
 threads may exceed the number of available processor cores (as could
 happen uncontrollably in a time-shared environment), since a wait for
 pipelined input uses a spin-loop that occupies a processor core.  When
 pipelining is disabled, the global variable helpers_not_pipelining
 will be set to 1 (versus 0 otherwise).  Pipelining is always disabled
-when there are no helper threads (and hence pipelining is impossible).
+when there are no helper threads, or multithreading has been disabled
+(see below), and hence pipelining is impossible.
 
 
 WRITING PIPELINED TASK PROCEDURES
@@ -789,6 +790,15 @@ HELPERS_PIPE_OUT flag if new task had the corresponding flag, and will
 have the HELPERS_PIPE_IN0, HELPERS_PIPE_IN1, or HELPERS_PIPE_IN2 flag
 if the old task had the corresponding flag.
 
+Task merging can be disabled by calling helpers_no_merging with
+argument 1 (and can be re-enabled by calling helpers_no_merging with
+argument 0).  When task merging is disabled, the HELPERS_MERGE_IN and
+HELPERS_MERGE_OUT flags will be disregarded when a task is scheduled.
+(Existing tasks are not affected.)  When task merging is disabled, the
+global variable helpers_not_merging will be set to 1 (versus 0
+otherwise).  Task merging is always disabled when the helpers facility
+is disabled (eg, with helpers_disable).
+
 
 INFORMATION FUNCTIONS AND VARIABLES
 
@@ -808,9 +818,11 @@ being computed, without checking them individually.
 To help the master decide how many tasks should be created to do a
 computation in parallel, the helpers_idle function is provided, which
 takes no arguments, and returns an estimate of how many helper threads
-are currently idle.  This estimate is not guaranteed to be correct
-(but will be in the range from 0 the helpers_num), and of course may
-soon be out-of-date, so it should be used only as a rough guide.
+are currently available to perform tasks.  This estimate is not
+guaranteed to be correct (but will be in the range from 0 the
+helpers_num), and of course may soon be out-of-date, so it should be
+used only as a rough guide.  When multithreading is disabled,
+helpers_idle will always return zero.
 
 
 OBTAINING A LIST OF VARIABLES
@@ -1043,6 +1055,8 @@ along with the context in which they may be called.
                     void           int
   helpers_no_pipelining                                  master
                     void           int
+  helpers_no_merging                                     master
+                    void           int
 
 An application program using the helpers facility must define the
 following types in helpers-app.h:
@@ -1082,6 +1096,7 @@ available in the master:
   helpers_num                Number of helper threads
   helpers_tasks              Number of tasks currently outstanding
   helpers_not_pipelining     Set to 1 if pipelining is disabled, 0 otherwise
+  helpers_not_merging        Set to 1 if task merging is disabled, 0 otherwise
   helpers_not_multithreading Set to 1 if tasks done only in master, 0 otherwise
   helpers_are_disabled       Set to 1 if helpers not enabled, 0 otherwise
 

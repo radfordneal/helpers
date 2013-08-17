@@ -361,12 +361,15 @@ static struct task_info *this_task_info;  /* Pointer to info for this_task */
 /* VARIABLES HOLDING DISABLING OPTIONS. */
 
 int helpers_are_disabled = 0;    /* 1 if helpers currently disabled */
+int helpers_not_merging = 0;     /* 1 if task merging is not enabled */
 
 #ifndef HELPERS_NO_MULTITHREADING
 int helpers_not_pipelining;      /* 1 if pipelining currently disabled */
 int helpers_not_multithreading;  /* 1 if currently all tasks done by master */
 #endif
 
+static int flag_mask = ~0;       /* Mask used to clear task flags according
+                                    to the settings of the above options */
 
 /* TRACE VARIABLES. */
 
@@ -1296,9 +1299,11 @@ static void helper_proc (void)
 /* DO A TASK OR SCHEDULE IT TO BE DONE. */
 
 void helpers_do_task 
-  (int flags, helpers_task_proc *task_to_do, helpers_op_t op, 
+  (int flags0, helpers_task_proc *task_to_do, helpers_op_t op, 
    helpers_var_ptr out, helpers_var_ptr in1, helpers_var_ptr in2)
 {
+  int flags = flags0 & flag_mask;  /* Flags with disabled features removed */
+
   struct task_info *info;
   tix pipe0;
   int i;
@@ -1312,13 +1317,6 @@ void helpers_do_task
   if (helpers_are_disabled)
   { info = &task[0].info;
     goto direct;
-  }
-
-  /* If there is no multithreading, clear the pipe flags to reduce overhead
-     (since no piping is possible). */
-
-  if (helpers_not_multithreading)
-  { flags &= ~HELPERS_PIPE_IN012_OUT;
   }
 
   /* Notice tasks that have now completed.  Note that this does a flush
@@ -1399,7 +1397,11 @@ void helpers_do_task
           m->flags &= ~ (HELPERS_MERGE_IN_OUT | HELPERS_PIPE_OUT);
           m->flags |= (flags & (HELPERS_MERGE_OUT | HELPERS_PIPE_OUT));
 
-          if (flags & (HELPERS_MASTER_ONLY | HELPERS_MASTER_NOW))
+          if (! (flags & (HELPERS_MASTER_ONLY | HELPERS_MASTER_NOW)))
+          {
+            merged = 1;
+          }
+          else
           { 
             /* Remove the merged task from the untaken queue. */
 
@@ -1432,7 +1434,7 @@ void helpers_do_task
 
               m->flags |= HELPERS_MASTER_NOW;
               if (trace) 
-              { trace_merged (pipe0, flags, task_to_do, op, out, in1, in2);
+              { trace_merged (pipe0, flags0, task_to_do, op, out, in1, in2);
               }
 
               /* Replace arguments of this function by merged task's values. */
@@ -1489,10 +1491,6 @@ void helpers_do_task
               merged = 2;
             }
           }
-          else
-          {
-            merged = 1;
-          }
         }
 
 #       ifndef HELPERS_NO_MULTITHREADING
@@ -1502,7 +1500,7 @@ void helpers_do_task
 #       endif
 
         if (merged==1)
-        { if (trace) trace_merged (pipe0, flags, task_to_do, op, out, in1, in2);
+        { if (trace) trace_merged(pipe0, flags0, task_to_do, op, out, in1, in2);
           return;
         }
       }
@@ -1675,7 +1673,7 @@ out_of_merge:
 
   /* Write trace output showing task scheduled, if trace enabled. */
 
-  if (trace) trace_started (t, flags, task_to_do, op, out, in1, in2);
+  if (trace) trace_started (t, flags0, task_to_do, op, out, in1, in2);
 
   /* If this is a master-only task, just put it in the master_only queue. */
 
@@ -1729,7 +1727,7 @@ direct:
 
   /* Do this task in the master without scheduling it. */
 
-  if (trace) trace_started (0, flags, task_to_do, op, out, in1, in2);
+  if (trace) trace_started (0, flags0, task_to_do, op, out, in1, in2);
 
   /* Code below is like in run_this_task, except this procedure's arguments
      are used without their being stored in the task info structure, and
@@ -2270,6 +2268,25 @@ helpers_var_ptr *helpers_var_list (void)
 }
 
 
+/* SET FLAG MASK ACCORDING TO CURRENT OPTIONS. */
+
+static void set_flag_mask (void)
+{
+  flag_mask = ~0;
+
+  if (helpers_are_disabled
+   || helpers_not_multithreading
+   || helpers_not_pipelining) 
+  { flag_mask &= ~HELPERS_PIPE_IN012_OUT;
+  }
+
+  if (helpers_are_disabled 
+   || helpers_not_merging)   
+  { flag_mask &= ~HELPERS_MERGE_IN_OUT;
+  }
+}
+
+
 /* DISABLE / RE-ENABLE PIPELINING. */
 
 #ifndef HELPERS_NO_MULTITHREADING
@@ -2277,9 +2294,29 @@ helpers_var_ptr *helpers_var_list (void)
 void helpers_no_pipelining (int a)
 {
   helpers_not_pipelining = a!=0 || helpers_num==0;
+  set_flag_mask();
+
+  if (trace) 
+  { helpers_printf ("HELPERS: Pipelining %s\n",
+                    helpers_not_pipelining ? "disabled" : "enabled");
+  }
 }
 
 #endif
+
+
+/* DISABLE / RE-ENABLE TASK MERGING. */
+
+void helpers_no_merging (int a)
+{
+  helpers_not_merging = a!=0;
+  set_flag_mask();
+
+  if (trace) 
+  { helpers_printf ("HELPERS: Task merging %s\n",
+                    helpers_not_merging ? "disabled" : "enabled");
+  }
+}
 
 
 /* DISABLE / RE-ENABLE HELPERS.  Before disabling, wait for all tasks to 
@@ -2292,6 +2329,9 @@ void helpers_disable (int a)
     memset (&task[0].info, 0, sizeof task[0].info);
   }
   helpers_are_disabled = a!=0;
+  set_flag_mask();
+  FLUSH;
+
   if (trace) 
   { helpers_printf ("HELPERS: Task deferral %s\n",
                     helpers_are_disabled ? "disabled" : "enabled");
@@ -2307,8 +2347,10 @@ void helpers_disable (int a)
 void helpers_no_multithreading (int a)
 {
   helpers_wait_for_all();
-  helpers_not_multithreading = a!=0;
+  helpers_not_multithreading = a!=0 || helpers_num==0;
+  set_flag_mask();
   FLUSH;
+
   if (trace) 
   { helpers_printf ("HELPERS: Multithreading %s\n",
                     helpers_not_multithreading ? "disabled" : "enabled");
@@ -2409,11 +2451,14 @@ void helpers_startup (int n)
       helpers_not_pipelining = 1;
 #   endif
 
+    set_flag_mask();
     helpers_master();
     exit(0);
   }
 
-  /* Otherwise, set up for using helper threads. */
+  /* Otherwise, set up for using helper threads.  If HELPERS_NO_MULTITHREADING
+     is defined, helpers_num will be zero, so this will code not be reached,
+     and is disabled so that OpenMP support will not be needed. */
 
 # ifndef HELPERS_NO_MULTITHREADING
 
@@ -2441,6 +2486,13 @@ void helpers_startup (int n)
       /* Find out how many helpers we really have. */
 
       helpers_num = omp_get_num_threads() - 1;
+
+      if (helpers_num==0) 
+      { helpers_not_multithreading = 1;
+        helpers_not_pipelining = 1;
+      }
+
+      set_flag_mask();
 
       /* Set suspend_lock[0] so helpers will be able to suspend themselves. */
 
