@@ -725,26 +725,31 @@ reducing computation time.
 When a new task, A, is scheduled, it will be merged with a task, B,
 that was previously scheduled if all the following conditions hold:
 
-  1) Task A has the HELPERS_MERGE_IN bit set in its flags (which are
-     given by an argument to helpers_do_task).
-
-  2) Task B has the HELPERS_MERGE_OUT bit set in its flags.
-
-  3) Task B does not have the HELPERS_MASTER_ONLY bit set in its flags.
-
-  4) Task B has not started to run in some helper thread.
-
-  5) The output variable of task A is not null, and is the same as the
+  1) The output variable of task A is not null, and is the same as the
      output variable of task B.  Furthermore, no task scheduled after 
      task B has this variable as its output variable.
+
+  2) Task A has the HELPERS_MERGE_IN bit set in its flags (which are
+     given by an argument to helpers_do_task).
+
+  3) Task B has the HELPERS_MERGE_OUT bit set in its flags.
+
+  4) If task B has the HELPERS_MASTER_ONLY bit set in its flags,
+     either task B is the most recently scheduled master-only task, or
+     task A does not have either the HELPERS_MASTER_ONLY bit or the
+     HELPERS_MASTER_NOW bit set in its flags.  (Otherwise, merging
+     these tasks would cause master-only operations to be performed
+     out of order.)
+
+  5) Task B has not started to run in some helper thread.
 
   6) The helpers_can_merge macro supplied by the application returns
      a non-zero value when given as arguments these tasks' output 
      variable, the task procedure for task A, the operation for task
      A, the two input variables for task A, the task procedure for
      task B, the operation for task B, and the two input variables
-     for task B.  Note that this macro is invoked only if (1) to (5)
-     above are true.
+     for task B.  This macro is invoked only if (1) to (4) above are 
+     true, but it may be invoked when (5) is not true.
 
 For convenience, the symbol HELPER_MERGE_IN_OUT is defined to be
 HELPERS_MERGE_IN | HELPERS_MERGE_OUT.
@@ -777,12 +782,6 @@ necessary, the helpers_can_merge macro must ensure can be satisfied):
 
   2) Neither in1_B or in2_B may be changed to refer to a variable
      that has not yet been computed.
-
-Furthermore, if in1_B or in2_B is changed to refer to a different
-variable (including in1_A or in2_A), the helpers_mark_in_use macro
-defined by the application (if it defines one) must be called to mark
-the variable as in use (unless the application knows that the mark
-will never be consulted).
 
 The task resulting from merging a new and an old task will have the
 HELPERS_MERGE_OUT, HELPERS_MASTER_ONLY, HELPERS_MASTER_NOW, or

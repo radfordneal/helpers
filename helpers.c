@@ -1345,25 +1345,36 @@ void helpers_do_task
      move to the master-only queue if the new task is master-only, or
      do the task now, if the new task is master-now, or we just return
      otherwise, with the merged task in the untaken queue where the old
-     one was.  
-
-     Note that a new task is allowed to merged with an old one only if none
-     of its inputs have not been computed, and the task merged with must
-     not have any of its uncomputed inputs changed.  So we don't need to 
-     update the merged task's pipe fields. */
+     one was. */
 
 # ifdef helpers_can_merge
 
   if (pipe0!=0 && (flags & HELPERS_MERGE_IN))
   { struct task_info *m = &task[pipe0].info;
-    if ((m->flags & HELPERS_MERGE_OUT) && !(m->flags & HELPERS_MASTER_ONLY)
+    if ((m->flags & HELPERS_MERGE_OUT) 
+          && (! (flags & (HELPERS_MASTER_ONLY | HELPERS_MASTER_NOW))
+               || ! (m->flags & HELPERS_MASTER_ONLY) 
+               || pipe0==master_only[master_only_out])
           && helpers_can_merge (out, task_to_do, op, in1, in2, 
                                 m->task_to_do, m->op, m->in1, m->in2))
-    { FLUSH;
-      ATOMIC_READ_CHAR (h = m->helper);
-      if (h==-1) /* the task to merge with is not being run, but of course */
-      {          /*  this could change at any time (if any helper threads) */
-        int merged;
+    { 
+      /* Set "merge" to 1 if we can merge with "m" (hasn't started running)
+         and later to 2 if the merged task can be done immediately.  Set 
+         "locked" to 1 if start_lock needs to be unset later. */
+
+      int merge = 1, locked = 0;
+      int w;
+
+      if (! (m->flags & HELPERS_MASTER_ONLY))
+      { 
+        FLUSH;
+        ATOMIC_READ_CHAR (h = m->helper);
+
+        /* Don't merge if the task to merge with has started to run. */
+
+        if (h!=-1)
+        { goto out_of_merge;
+        }
 
 #       ifndef HELPERS_NO_MULTITHREADING
         if (!helpers_not_multithreading)
@@ -1381,128 +1392,182 @@ void helpers_do_task
             }
             do_task_in_master(0);
           }
+
+          locked = 1;
         }
 #       endif
 
-        if (m->helper!=-1)
-        { merged = 0;
+        if (h!=-1) 
+        { merge = 0;
         }
-        else
-        { 
-          /* Merge the new task with the existing task, indexed by pipe0. */
+      }
 
-          helpers_merge (out, task_to_do, op, in1, in2, 
-                         &m->task_to_do, &m->op, &m->var[1], &m->var[2]);
+      if (merge)
+      { 
+        /* Merge the new task with the existing task, with info at "m"
+           and indexed by "pipe0".  Save previous in1 and in2 values. */
 
-          m->flags &= ~ (HELPERS_MERGE_IN_OUT | HELPERS_PIPE_OUT);
-          m->flags |= (flags & (HELPERS_MERGE_OUT | HELPERS_PIPE_OUT));
+        helpers_var_ptr old_var[3];
 
-          if (! (flags & (HELPERS_MASTER_ONLY | HELPERS_MASTER_NOW)))
-          {
-            merged = 1;
-          }
-          else
+        old_var[1] = m->var[1];
+        old_var[2] = m->var[2];
+
+        helpers_merge (out, task_to_do, op, in1, in2, 
+                       &m->task_to_do, &m->op, &m->var[1], &m->var[2]);
+
+        m->flags &= ~ (HELPERS_MERGE_IN_OUT | HELPERS_PIPE_OUT);
+        m->flags |= (flags & (HELPERS_MERGE_OUT | HELPERS_PIPE_OUT));
+
+        /* Remove and/or add merged task from/to queues.  Nothing needs to
+           be done if the task merged into is master-only and the new task
+           isn't master-now, or if the task merged into is not master-only
+           and the new task is neither master-only nor master-now.  When
+           the new task is master-now, the task merged into is removed from
+           its queue, then done immediately without being added to a queue. */
+
+        if (m->flags & HELPERS_MASTER_ONLY)
+        { if (flags & HELPERS_MASTER_NOW)
           { 
-            /* Remove the merged task from the untaken queue. */
+            /* Remove the task to merge into from the master-only queue. */
 
-            int j;
+            master_only_out = (master_only_out + 1) & QMask;
+          }
+        }
+        else if (flags & (HELPERS_MASTER_ONLY | HELPERS_MASTER_NOW))
+        { 
+          /* Remove the task to merge into from the untaken queue. */
 
-            for (j = untaken_out; untaken[j]!=pipe0; j = (j+1) & QMask)
-            { if (j==untaken_in)
-              { helpers_printf("MERGED TASK NOT IN UNTAKEN QUEUE!\n");
-                exit(1);
-              }
+          int j;
+
+          for (j = untaken_out; untaken[j]!=pipe0; j = (j+1) & QMask)
+          { if (j==untaken_in)
+            { helpers_printf("MERGED TASK NOT IN UNTAKEN QUEUE!\n");
+              exit(1);
             }
+          }
 
-            untaken[j] = untaken[untaken_out];
-            untaken_out = (untaken_out + 1) & QMask;
+          untaken[j] = untaken[untaken_out];
+          untaken_out = (untaken_out + 1) & QMask;
 
-            if (flags & HELPERS_MASTER_ONLY)
-            { 
-              m->flags |= HELPERS_MASTER_ONLY;
+          if (! (flags & HELPERS_MASTER_NOW))
+          { 
+            /* Insert the merged task in the master-only queue. */
 
-              /* Insert the merged task in the master-only queue. */
+            m->flags |= HELPERS_MASTER_ONLY;
 
-              master_only[master_only_in] = pipe0;
-              master_only_in = (master_only_in + 1) & QMask;
-
-              merged = 1;
-            }
-            else /* flags & HELPERS_MASTER_NOW */
-            { 
-              int w;
-
-              m->flags |= HELPERS_MASTER_NOW;
-              if (trace) 
-              { trace_merged (pipe0, flags0, task_to_do, op, out, in1, in2);
-              }
-
-              /* Replace arguments of this function by merged task's values. */
-
-              flags      = m->flags | HELPERS_MASTER_NOW;
-              task_to_do = m->task_to_do;
-              op         = m->op;
-              in1        = m->var[1];
-              in2        = m->var[2];
-
-              /* Remove the merged task from "used".  The position of the
-                 merged task in "used" was left in "i" by code above. */
-
-              helpers_tasks -= 1;
-              for (j = i; j<helpers_tasks; j++)
-              { used[j] = used[j+1];
-              }
-              used[helpers_tasks] = pipe0;
-
-              /* Update pipe0 to be the task producing output for the merged 
-                 task (or zero). */
-
-              pipe0 = m->pipe[0];
-
-              /* Mark output as not being computed, since it won't be after
-                 this task is done (immediately) in the master thread.   
-                 Similarly, mark inputs as not in use, if they aren't used 
-                 by another task. */
-
-#             ifdef helpers_mark_not_being_computed
-                helpers_mark_not_being_computed (out);
-#             endif
-
-#             ifdef helpers_mark_not_in_use
-                for (w = 1; w<=2; w++)
-                { helpers_var_ptr v = m->var[w];
-                  if (v!=null && v!=m->var[0])
-                  { int j;
-                    for (j = 0; j<helpers_tasks; j++)
-                    { struct task_info *einfo = &task[used[j]].info;
-                      if (einfo->var[0]!=v 
-                           && (einfo->var[1]==v || einfo->var[2]==v))
-                      { goto done_u;
-                      }
-                    }
-                    helpers_mark_not_in_use(v);
-                  }
-                done_u: ;
-                }
-#             endif
-
-              /* Set flag to process as new task after unsetting the lock. */
-
-              merged = 2;
-            }
+            master_only[master_only_in] = pipe0;
+            master_only_in = (master_only_in + 1) & QMask;
           }
         }
 
-#       ifndef HELPERS_NO_MULTITHREADING
-        if (!helpers_not_multithreading)
-        { omp_unset_lock (&start_lock);
-        }
-#       endif
+        if (flags & HELPERS_MASTER_NOW)
+        { 
+          /* Set things up so the merged task can be done immediately. */
 
-        if (merged==1)
-        { if (trace) trace_merged(pipe0, flags0, task_to_do, op, out, in1, in2);
-          return;
+          int j;
+
+          if (trace) 
+          { trace_merged (pipe0, flags0, task_to_do, op, out, in1, in2);
+          }
+
+          /* Replace arguments of this function by merged task's values. */
+
+          flags      = m->flags | HELPERS_MASTER_NOW;
+          task_to_do = m->task_to_do;
+          op         = m->op;
+          in1        = m->var[1];
+          in2        = m->var[2];
+
+          /* Remove the merged task from "used".  The position of the
+             merged task in "used" was left in "i" by code above. */
+
+          helpers_tasks -= 1;
+          for (j = i; j<helpers_tasks; j++)
+          { used[j] = used[j+1];
+          }
+          used[helpers_tasks] = pipe0;
+
+          /* Update pipe0 to be the task producing output for the merged 
+             task (or zero). */
+
+          pipe0 = m->pipe[0];
+
+          /* Mark the output as not being computed, since it won't be after
+             this task is done (immediately) in the master thread. */
+
+#         ifdef helpers_mark_not_being_computed
+            helpers_mark_not_being_computed (out);
+#         endif
+
+          /* Mark the inputs previously in use as not in use, if they aren't 
+             used by another task. */
+
+#         ifdef helpers_mark_not_in_use
+            for (w = 1; w<=2; w++)
+            { helpers_var_ptr v = old_var[w];
+              if (v!=null && v!=out)
+              { int j;
+                for (j = 0; j<helpers_tasks; j++)
+                { struct task_info *einfo = &task[used[j]].info;
+                  if (einfo->var[0]!=v 
+                       && (einfo->var[1]==v || einfo->var[2]==v))
+                  { goto done_u1;
+                  }
+                }
+                helpers_mark_not_in_use(v);
+              }
+            done_u1: ;
+            }
+#         endif
+
+          /* Set flag to process as a new task after unsetting the lock. */
+
+          merge = 2;
         }
+        else /* not master-now */
+        {
+          helpers_var_ptr in1_m = m->var[1],
+                          in2_m = m->var[2];
+
+          /* Mark the inputs previously in use as not in use, if they aren't
+             the same as new inputs, and aren't used by another task. */
+
+#         ifdef helpers_mark_not_in_use
+            for (w = 1; w<=2; w++)
+            { helpers_var_ptr v = old_var[w];
+              if (v!=null && v!=out && v!=in1_m && v!=in2_m)
+              { int j;
+                for (j = 0; j<helpers_tasks; j++)
+                { struct task_info *einfo = &task[used[j]].info;
+                  if (einfo->var[0]!=v 
+                       && (einfo->var[1]==v || einfo->var[2]==v))
+                  { goto done_u2;
+                  }
+                }
+                helpers_mark_not_in_use(v);
+              }
+            done_u2: ;
+            }
+#         endif
+
+          /* Mark the new inputs as in use. */
+
+#         ifdef helpers_mark_in_use
+            if (in1_m!=null && in1_m!=out) helpers_mark_in_use(in1_m);
+            if (in2_m!=null && in2_m!=out) helpers_mark_in_use(in2_m);
+#         endif
+        }
+      }
+  
+#     ifndef HELPERS_NO_MULTITHREADING
+      if (locked)
+      { omp_unset_lock (&start_lock);
+      }
+#     endif
+
+      if (merge==1)
+      { if (trace) trace_merged(pipe0, flags0, task_to_do, op, out, in1, in2);
+        return;
       }
     }
   }
