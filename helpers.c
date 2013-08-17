@@ -906,6 +906,26 @@ static tix find_untaken_runnable (int only_needed)
 }
 
 
+/* MARK A VARIABLE AS NOT IN USE, IF NOT USED BY AN UNCOMPLETED TASK. */
+
+#ifdef helpers_mark_not_in_use
+
+static inline void maybe_mark_not_in_use (helpers_var_ptr v)
+{ char d;
+  int j;
+  for (j = 0; j<helpers_tasks; j++)
+  { struct task_info *einfo = &task[used[j]].info;
+    if (einfo->var[0]!=v && (einfo->var[1]==v || einfo->var[2]==v))
+    { ATOMIC_READ_CHAR (d = einfo->done);
+      if (!d) return;
+    }
+  }
+  helpers_mark_not_in_use(v);
+}
+
+#endif
+
+
 /* NOTICE COMPLETED TASKS.  Called only from the master thread.  Note that it
    starts and ends with FLUSH operations (except when there are no tasks). */
 
@@ -1001,18 +1021,8 @@ static void notice_completed (void)
         for (w = 1; w<=2; w++)
         { v = info->var[w];
           if (v!=null && v!=info->var[0])
-          { for (j = 0; j<helpers_tasks; j++)
-            { struct task_info *einfo = &task[used[j]].info;
-              if (einfo->var[0]!=v && (einfo->var[1]==v || einfo->var[2]==v))
-              { ATOMIC_READ_CHAR (d = einfo->done);
-                if (!d) 
-                { goto done_u;
-                }
-              }
-            }
-            helpers_mark_not_in_use(v);
+          { maybe_mark_not_in_use(v);
           }
-        done_u: ;
         }
 #     endif
     }
@@ -1506,17 +1516,8 @@ void helpers_do_task
             for (w = 1; w<=2; w++)
             { helpers_var_ptr v = old_var[w];
               if (v!=null && v!=out)
-              { int j;
-                for (j = 0; j<helpers_tasks; j++)
-                { struct task_info *einfo = &task[used[j]].info;
-                  if (einfo->var[0]!=v 
-                       && (einfo->var[1]==v || einfo->var[2]==v))
-                  { goto done_u1;
-                  }
-                }
-                helpers_mark_not_in_use(v);
+              { maybe_mark_not_in_use(v);
               }
-            done_u1: ;
             }
 #         endif
 
@@ -1536,17 +1537,8 @@ void helpers_do_task
             for (w = 1; w<=2; w++)
             { helpers_var_ptr v = old_var[w];
               if (v!=null && v!=out && v!=in1_m && v!=in2_m)
-              { int j;
-                for (j = 0; j<helpers_tasks; j++)
-                { struct task_info *einfo = &task[used[j]].info;
-                  if (einfo->var[0]!=v 
-                       && (einfo->var[1]==v || einfo->var[2]==v))
-                  { goto done_u2;
-                  }
-                }
-                helpers_mark_not_in_use(v);
+              { maybe_mark_not_in_use(v);
               }
-            done_u2: ;
             }
 #         endif
 
