@@ -2278,8 +2278,8 @@ helpers_size_t helpers_avail_var (helpers_var_ptr v, helpers_size_t mx)
 /* -------------  MISCELLANEOUS PROCEDURES USED BY APPLICATIONS  ------------ */
 
 
-/* RETURN AN ESTIMATE OF THE NUMBER OF IDLE HELPERS.  Note that it calls
-   notice_completed to start (unless helpers are disabled). */
+/* RETURN AN ESTIMATE OF THE NUMBER OF IDLE HELPERS.  Note that it starts by 
+   calling notice_completed (unless no multithreading or helpers disabled). */
 
 #ifndef HELPERS_NO_MULTITHREADING
 
@@ -2288,7 +2288,7 @@ int helpers_idle (void)
   int i, c;
   hix h;
 
-  if (helpers_not_multithreading) return 0;
+  if (helpers_not_multithreading || helpers_are_disabled) return 0;
 
   notice_completed();
 
