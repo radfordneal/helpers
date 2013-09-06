@@ -1200,8 +1200,8 @@ static void do_task_in_master (int only_needed)
 
   this_task_info = &task[this_task].info;
   this_task_info->helper = 0;
-
   FLUSH;
+
   run_this_task();
 
   /* Set this_task to indicate that nothing is being done in the master,
@@ -1296,7 +1296,9 @@ static void helper_proc (void)
     ATOMIC_WRITE_CHAR (this_task_info->helper = this_thread);
 
     omp_unset_lock (&start_lock);  /* implies a flush */
+
     run_this_task();
+
     omp_set_lock (&start_lock);  /* implies a flush */
   }
 }
@@ -2154,13 +2156,24 @@ void helpers_wait_for_all (void)
 
 /* -----------------------  PIPELINING PROCEDURES  -------------------------- */
 
+/* CHECK WHETHER THERE'S ANY NEED FOR PIPELINING OUTPUT. */
+
+#ifndef HELPERS_NO_MULTITHREADING
+
+int helpers_output_may_be_pipelined (void)
+{ 
+  return (this_task_info->flags & HELPERS_PIPE_OUT) != 0;
+}
+
+#endif
+
 /* SAY HOW MUCH OF THE OUTPUT HAS BEEN PRODUCED SO FAR.  Changes the 
    amt_out field for this task - without synchronization, on the assumption 
    that reading and writing are atomic operations.  A flush is done before
    to ensure that the new data is there before the updated value for amt_out
    indicates that it is there.  No flush is done after the update - at worst,
    the new value for amt_out will be flushed on the next call, or when the
-   task finished. */
+   task finishes. */
 
 #ifndef HELPERS_NO_MULTITHREADING
 
@@ -2561,6 +2574,8 @@ void helpers_startup (int n)
 
   #pragma omp parallel num_threads(helpers_num+1)
   {
+    /* Get thread number, with master being zero. */
+
     this_thread = omp_get_thread_num();
 
     if (this_thread==0)
