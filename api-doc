@@ -451,13 +451,13 @@ when there are no helper threads, or multithreading has been disabled
 (see below), and hence pipelining is impossible.
 
 A task procedure can check whether calling the helpers_amount_out
-procedure is useful with the helpers_output_may_be_pipelined function,
-which takes no arguments, and returns 1 if the output may be pipelined
-to another task, and 0 if not.  Note that this is based solely on
-whether or not pipelining is disabled, and on whether the task was
-scheduled with the HELPERS_PIPE_OUT flag, not on whether another task
-is currently looking for such pipelined output (which may change as
-the task runs).
+procedure is useful with the helpers_output_perhaps_pipelined
+function, which takes no arguments, and returns 1 if the output may be
+pipelined to another task, and 0 if not.  Note that this is based
+solely on whether or not pipelining is disabled, and on whether the
+task was scheduled with the HELPERS_PIPE_OUT flag, not on whether
+another task is currently looking for such pipelined output (which may
+change as the task runs).
 
 
 WRITING PIPELINED TASK PROCEDURES
@@ -1041,7 +1041,7 @@ along with the context in which they may be called.
   helpers_wait_for_all
                     void           void                  master
 
-  helpers_output_may_be_pipelined
+  helpers_output_perhaps_pipelined
                     int            void                  task
 
   helpers_amount_out  

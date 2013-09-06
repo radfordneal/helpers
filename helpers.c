@@ -2165,7 +2165,7 @@ void helpers_wait_for_all (void)
 
 #ifndef HELPERS_NO_MULTITHREADING
 
-int helpers_output_may_be_pipelined (void)
+int helpers_output_perhaps_pipelined (void)
 { 
   return (this_task_info->flags & HELPERS_PIPE_OUT) != 0;
 }
