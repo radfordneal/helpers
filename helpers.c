@@ -1782,7 +1782,7 @@ out_of_merge:
 
 # ifdef HELPERS_NO_MULTITHREADING
 
-    untaken_in = (untaken_in+1) & QMask;
+  untaken_in = (untaken_in+1) & QMask;
 
 # else
 
