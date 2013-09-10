@@ -1734,7 +1734,7 @@ out_of_merge:
     if (in1==null) goto search_in2;
     if (in2==null) goto search_in1;
 	
-    for (;;)
+    do
     { if (task[*uh].info.var[0]==in1)
       { info->pipe[1] = *uh;
         goto search_in2;
@@ -1743,35 +1743,27 @@ out_of_merge:
       { info->pipe[2] = *uh;
         goto search_in1;
       }
-      if (uh==used) 
-      { goto search_done;
-      }
-      uh -= 1;
-    }
+    } while (--uh>=used);
+
+    goto search_done;
 
   search_in1:
-    for (;;)
+    do
     { if (task[*uh].info.var[0]==in1)
       { info->pipe[1] = *uh;
         goto search_done;
       }
-      if (uh==used) 
-      { goto search_done;
-      }
-      uh -= 1;
-    }
+    } while (--uh>=used);
+
+    goto search_done;
 
   search_in2:
-    for (;;)
+    do
     { if (task[*uh].info.var[0]==in2)
       { info->pipe[2] = *uh;
         goto search_done;
       }
-      if (uh==used) 
-      { goto search_done;
-      }
-      uh -= 1;
-    }
+    } while (--uh>=used);
 
   search_done: ;
   }
