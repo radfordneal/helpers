@@ -933,7 +933,7 @@ static inline void maybe_mark_not_in_use (helpers_var_ptr v)
    procedure is called only via the notice_completed macro. */
 
 #define notice_completed() \
-  do { if (helpers_tasks!=0) notice_completed_proc(); } while (0)
+  do { if (helpers_tasks>0) notice_completed_proc(); } while (0)
 
 static void notice_completed_proc (void)
 {
@@ -1317,6 +1317,7 @@ void helpers_do_task
   struct task_info *info;
   int flags;
   int pipe0;
+  tix *uh;
   int i;
   tix t;
   hix h;
@@ -1341,18 +1342,17 @@ void helpers_do_task
 
   /* Find the most-recently-scheduled task (if any) that outputs the output
      variable of this new task, setting pipe0 to the task index, or zero. 
-     If one is found, "i" is left pointing to its position in "used". */
+     If one is found, "uh" is left pointing to its position in "used". */
 
   pipe0 = 0;
-  if (out!=null)
-  { i = helpers_tasks;
-    while (i>0)
-    { tix u = used[--i];
-      if (task[u].info.var[0]==out)
-      { pipe0 = u;
+  if (out!=null && helpers_tasks>0)
+  { uh = &used[helpers_tasks-1];
+    do
+    { if (task[*uh].info.var[0]==out)
+      { pipe0 = *uh;
         break;
       }
-    }
+    } while (--uh>=used);
   }
 
   /* Perhaps try to merge the new task with the task, indexed by pipe0, that 
@@ -1496,13 +1496,15 @@ void helpers_do_task
           in2        = m->var[2];
 
           /* Remove the merged task from "used".  The position of the
-             merged task in "used" was left in "i" by code above. */
+             merged task in "used" was left in "uh" by code above. */
 
           helpers_tasks -= 1;
-          for (j = i; j<helpers_tasks; j++)
-          { used[j] = used[j+1];
+          tix *ue = &used[helpers_tasks];
+          while (uh!=ue) 
+          { *uh = *(uh+1);
+            uh += 1;
           }
-          used[helpers_tasks] = pipe0;
+          *uh = pipe0;
 
           /* Update pipe0 to be the task producing output for the merged 
              task (or zero). */
@@ -1704,15 +1706,16 @@ out_of_merge:
      had to be done in the master, it might have changed, so look again. */
 
   if (pipe0==-1) 
-  { /* "pipe0" was previously non-zero, so "out" must not be null */
-    pipe0 = 0;
-    i = helpers_tasks;
-    while (i>0)
-    { tix u = used[--i];
-      if (task[u].info.var[0]==out)
-      { pipe0 = u;
-        break;
-      }
+  { pipe0 = 0;
+    /* "pipe0" was previously non-zero, so "out" must not be null */
+    if (helpers_tasks>0)
+    { uh = &used[helpers_tasks-1];
+      do
+      { if (task[*uh].info.var[0]==out)
+        { pipe0 = *uh;
+          break;
+        }
+      } while (--uh>=used);
     }
   }
 
@@ -1724,29 +1727,53 @@ out_of_merge:
 
   info->pipe[1] = info->pipe[2] = 0;
 
-  if (helpers_tasks>0)
+  if (helpers_tasks>0 && (in1!=null || in2!=null))
   { 
-    if (in1!=null)
-    { i = helpers_tasks;
-      do
-      { tix u = used[--i];
-        if (task[u].info.var[0]==in1)
-        { info->pipe[1] = u;
-          break;
-        }
-      } while (i>0);
+    uh = &used[helpers_tasks-1];
+
+    if (in1==null) goto search_in2;
+    if (in2==null) goto search_in1;
+	
+    for (;;)
+    { if (task[*uh].info.var[0]==in1)
+      { info->pipe[1] = *uh;
+        goto search_in2;
+      }
+      if (task[*uh].info.var[0]==in2)
+      { info->pipe[2] = *uh;
+        goto search_in1;
+      }
+      if (uh==used) 
+      { goto search_done;
+      }
+      uh -= 1;
     }
 
-    if (in2!=null)
-    { i = helpers_tasks;
-      do
-      { tix u = used[--i];
-        if (task[u].info.var[0]==in2)
-        { info->pipe[2] = u;
-          break;
-        }
-      } while (i>0);
+  search_in1:
+    for (;;)
+    { if (task[*uh].info.var[0]==in1)
+      { info->pipe[1] = *uh;
+        goto search_done;
+      }
+      if (uh==used) 
+      { goto search_done;
+      }
+      uh -= 1;
     }
+
+  search_in2:
+    for (;;)
+    { if (task[*uh].info.var[0]==in2)
+      { info->pipe[2] = *uh;
+        goto search_done;
+      }
+      if (uh==used) 
+      { goto search_done;
+      }
+      uh -= 1;
+    }
+
+  search_done: ;
   }
 
   /* Do a master-now task directly. */
