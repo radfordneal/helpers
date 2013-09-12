@@ -1731,16 +1731,30 @@ out_of_merge:
 
   /* For each input variable in the new task, find the task (if any) that is
      outputting that variable.  When more than one task has the same output
-     variable, the one scheduled most recently takes precedence. */
+     variable, the one scheduled most recently takes precedence.  If an
+     input variable is the same as the output variable, we can use pipe0. */
 
   info->pipe[1] = info->pipe[2] = 0;
 
-  if (helpers_tasks>0 && (in1!=null || in2!=null))
+  if (helpers_tasks>0)
   { 
     uh = &used[helpers_tasks-1];
 
-    if (in1==null) goto search_in2;
-    if (in2==null) goto search_in1;
+    if (in1==out) info->pipe[1] = pipe0;
+    if (in2==out) info->pipe[2] = pipe0;
+
+    if (in1==null || in1==out) 
+    { if (in2==null || in2==out) 
+      { goto search_done;
+      }
+      else
+      { goto search_in2;
+      }
+    }
+
+    if (in2==null || in2==out) 
+    { goto search_in1;
+    }
 	
     do
     { if (task[*uh].info.var[0]==in1)
