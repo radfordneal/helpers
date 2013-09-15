@@ -794,51 +794,57 @@ static int runnable (mtix t)
   /* Look at availability of input from the 'out' varable. */
 
   ATOMIC_READ_CHAR (p = info->pipe[0]);
-  ATOMIC_READ_CHAR (d = task[p].info.done);
-  if (p!=0 && !d)
-  { ATOMIC_READ_CHAR (h = task[p].info.helper);
-    f = task[p].info.flags;
-    FLUSH;
-    ATOMIC_READ_CHAR (p = info->pipe[0]);
-    if (p!=0) /* could be 0 if task finished since check above */
-    { if (h<0 || ! (f & HELPERS_PIPE_OUT) || ! (info->flags & HELPERS_PIPE_IN0))
-      { return 0;
+  if (p!=0)
+  { ATOMIC_READ_CHAR (d = task[p].info.done);
+    if (!d)
+    { ATOMIC_READ_CHAR (h = task[p].info.helper);
+      f = task[p].info.flags;
+      FLUSH;
+      ATOMIC_READ_CHAR (p = info->pipe[0]);
+      if (p!=0) /* could be 0 if task finished since check above */
+      { if (h<0 || !(f & HELPERS_PIPE_OUT) || !(info->flags & HELPERS_PIPE_IN0))
+        { return 0;
+        }
+        r = -1;
       }
-      r = -1;
     }
   }
 
   /* Look at availability of input from the 'in1' varable. */
 
   ATOMIC_READ_CHAR (p = info->pipe[1]);
-  ATOMIC_READ_CHAR (d = task[p].info.done);
-  if (p!=0 && !d)
-  { ATOMIC_READ_CHAR (h = task[p].info.helper);
-    f = task[p].info.flags;
-    FLUSH;
-    ATOMIC_READ_CHAR (p = info->pipe[1]);
-    if (p!=0) /* could be 0 if task finished since check above */
-    { if (h<0 || ! (f & HELPERS_PIPE_OUT) || ! (info->flags & HELPERS_PIPE_IN1))
-      { return 0;
+  if (p!=0)
+  { ATOMIC_READ_CHAR (d = task[p].info.done);
+    if (!d)
+    { ATOMIC_READ_CHAR (h = task[p].info.helper);
+      f = task[p].info.flags;
+      FLUSH;
+      ATOMIC_READ_CHAR (p = info->pipe[1]);
+      if (p!=0) /* could be 0 if task finished since check above */
+      { if (h<0 || !(f & HELPERS_PIPE_OUT) || !(info->flags & HELPERS_PIPE_IN1))
+        { return 0;
+        }
+        r = -1;
       }
-      r = -1;
     }
   }
 
   /* Look at availability of input from the 'in2' varable. */
 
   ATOMIC_READ_CHAR (p = info->pipe[2]);
-  ATOMIC_READ_CHAR (d = task[p].info.done);
-  if (p!=0 && !d)
-  { ATOMIC_READ_CHAR (h = task[p].info.helper);
-    f = task[p].info.flags;
-    FLUSH;
-    ATOMIC_READ_CHAR (p = info->pipe[2]);
-    if (p!=0) /* could be 0 if task finished since check above */
-    { if (h<0 || ! (f & HELPERS_PIPE_OUT) || ! (info->flags & HELPERS_PIPE_IN2))
-      { return 0;
+  if (p!=0)
+  { ATOMIC_READ_CHAR (d = task[p].info.done);
+    if (!d)
+    { ATOMIC_READ_CHAR (h = task[p].info.helper);
+      f = task[p].info.flags;
+      FLUSH;
+      ATOMIC_READ_CHAR (p = info->pipe[2]);
+      if (p!=0) /* could be 0 if task finished since check above */
+      { if (h<0 || !(f & HELPERS_PIPE_OUT) || !(info->flags & HELPERS_PIPE_IN2))
+        { return 0;
+        }
+        r = -1;
       }
-      r = -1;
     }
   }
 
