@@ -2029,21 +2029,28 @@ void helpers_start_computing_var (helpers_var_ptr v)
      needed to finish a needed task scheduled later, or that is a master-only 
      task that needs to run before a later master-only task that is needed. */
 
-  mark_as_needed (vinfo, -1);
   master_only_needed = vinfo->flags & HELPERS_MASTER_ONLY;
 
-  for (i = vindex-1; i>=0; i--)
-  { 
-    struct task_info *uinfo = &task[used[i]].info;
-    int needed = uinfo->needed;
+  if (vindex==0) /* handle this case quickly */
+  { vinfo->needed = -1;
+  }
+  else
+  {
+    mark_as_needed (vinfo, -1);
 
-    if (master_only_needed && (uinfo->flags & HELPERS_MASTER_ONLY))
-    { needed = -1;
-    }
+    for (i = vindex-1; i>=0; i--)
+    { 
+      struct task_info *uinfo = &task[used[i]].info;
+      int needed = uinfo->needed;
 
-    if (needed != 0) 
-    { mark_as_needed (uinfo, needed);
-      if (uinfo->flags & HELPERS_MASTER_ONLY) master_only_needed = 1;
+      if (master_only_needed && (uinfo->flags & HELPERS_MASTER_ONLY))
+      { needed = -1;
+      }
+
+      if (needed != 0) 
+      { mark_as_needed (uinfo, needed);
+        if (uinfo->flags & HELPERS_MASTER_ONLY) master_only_needed = 1;
+      }
     }
   }
 
@@ -2436,7 +2443,8 @@ helpers_size_t helpers_avail_var (helpers_var_ptr v, helpers_size_t mx)
 
 
 /* RETURN AN ESTIMATE OF THE NUMBER OF IDLE HELPERS.  Note that it starts by 
-   calling notice_completed (unless no multithreading or helpers disabled). */
+   calling notice_completed (unless no multithreading or helpers disabled, or
+   no tasks outstanding). */
 
 #ifndef HELPERS_NO_MULTITHREADING
 
@@ -2445,7 +2453,13 @@ int helpers_idle (void)
   int i, c;
   hix h;
 
-  if (helpers_not_multithreading || helpers_are_disabled) return 0;
+  if (helpers_not_multithreading || helpers_are_disabled) 
+  { return 0;
+  }
+
+  if (helpers_tasks==0)
+  { return helpers_num;
+  }
 
   notice_completed();
 
