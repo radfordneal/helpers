@@ -934,7 +934,11 @@ static mtix find_untaken_runnable (int only_needed)
 }
 
 
-/* MARK A VARIABLE AS NOT IN USE, IF NOT USED BY AN UNCOMPLETED TASK. */
+/* MARK A VARIABLE AS NOT IN USE, IF NOT USED BY AN UNCOMPLETED TASK. 
+   Looks at whether it is used by any task that does not have 'done'
+   set.  Note that this may result in a variable being marked as not
+   in use when a task that used it has finished but not yet been noticed
+   to have finished by the master thread, but this should be OK. */
 
 #ifdef helpers_mark_not_in_use
 
@@ -984,7 +988,9 @@ static void notice_completed_proc (void)
     }
   }
 
-  /* Loop through tasks in 'used', processing completion of any now done. */
+  /* Loop through tasks in 'used', processing completion of any now done. 
+     Note that if more than one task has finished, they are processed
+     in the order in which they were scheduled. */
 
   k = i;
   for ( ; i<helpers_tasks; i++)
@@ -1004,13 +1010,15 @@ static void notice_completed_proc (void)
     {
       /* Update 'pipe' fields for tasks that were taking input from this one,
          if there may be any.  We can stop after seeing a task scheduled
-         after this one that has the same output variable, since later
-         tasks taking that as an input will reference the later task. 
+         after this one that has the same output variable, since tasks after
+         that taking the variable as an input will reference the later task. 
 
          Also, we find out here whether the output variable is still being 
-         computed.*/
+         computed.  We rely on a task that takes piped input for its 'out' 
+         variable not finishing before the earlier task has fully computed 
+         this variable, so only later tasks might still be computing it. */
 
-      int still_being_computed = info->pipe[0] != 0;
+      int still_being_computed = 0;
 
       if (info->out_used)
       { for (j = i+1; j<helpers_tasks; j++)
