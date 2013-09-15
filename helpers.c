@@ -265,9 +265,14 @@ static union task_entry
     helpers_op_t op;               /* The unsigned integer operand */
     helpers_var_ptr var[3];        /* The output variable, [0], and the input 
                                       variables, [1] and [2]; any may be null */
+
+    /* The next two fields are used only by the master. */
+
     char out_used;                 /* Set to 1 if the output has been used as
-                                      the input of a task scheduled later 
-                                      (currently accessed only by the master) */
+                                      the input of a task scheduled later */
+    char not_in_use_before[3];     /* When 1, indicates that in1/in2 was not
+                                      in use before this task was scheduled;
+                                      not_in_use_before[0] isn't actually used*/
 
     /* The fields below are used only when ENABLE_TRACE is 2 or 3. */
 
@@ -940,25 +945,37 @@ static mtix find_untaken_runnable (int only_needed)
 }
 
 
-/* MARK A VARIABLE AS NOT IN USE, IF NOT USED BY AN UNCOMPLETED TASK. 
-   Looks at whether it is used by any task that does not have 'done'
-   set.  Note that this may result in a variable being marked as not
-   in use when a task that used it has finished but not yet been noticed
-   to have finished by the master thread, but this should be OK. */
+/* MARK INPUTS AS NOT IN USE, IF NOT USED BY AN UNCOMPLETED TASK.  Looks at 
+   whether the input variables of a task are used by any task that does not
+   have 'done' set.  Note that this may result in a variable being marked as 
+   not in use when a task that used it has finished but not yet been noticed
+   to have finished by the master thread, but this should be OK.
+
+   The 'i' argument is the index in 'used' of the task whose input variables
+   are to (maybe) be unmarked. */
 
 #ifdef helpers_mark_not_in_use
 
-static inline void maybe_mark_not_in_use (helpers_var_ptr v)
-{ char d;
-  int j;
-  for (j = 0; j<helpers_tasks; j++)
-  { struct task_info *einfo = &task[used[j]].info;
-    if (einfo->var[0]!=v && (einfo->var[1]==v || einfo->var[2]==v))
-    { ATOMIC_READ_CHAR (d = einfo->done);
-      if (!d) return;
+static inline void maybe_mark_not_in_use (int i)
+{ 
+  struct task_info *info = &task[used[i]].info;
+  int w, j;
+
+  for (w = 1; w<=2; w++)
+  { helpers_var_ptr v = info->var[w];
+    if (v!=null && v!=info->var[0])
+    { for (j = (info->not_in_use_before[w] ? i+1 : 0); j<helpers_tasks; j++)
+      { struct task_info *einfo = &task[used[j]].info;
+        if (einfo->var[0]!=v && (einfo->var[1]==v || einfo->var[2]==v))
+        { char d;
+          ATOMIC_READ_CHAR (d = einfo->done);
+          if (!d) goto next;
+        }
+      }
+      helpers_mark_not_in_use(v);
     }
+  next: ;
   }
-  helpers_mark_not_in_use(v);
 }
 
 #endif
@@ -1071,18 +1088,10 @@ static void notice_completed_proc (void)
 #     endif
   
       /* Unset the in-use flags as appropriate, if the application defined the 
-         required macro.  This requires scanning other tasks to see if one is 
-         still using the variable. */
+         required macro. */
 
 #     ifdef helpers_mark_not_in_use
-      { helpers_var_ptr v = info->var[0];
-        if (info->var[1]!=null && info->var[1]!=v) 
-        { maybe_mark_not_in_use(info->var[1]);
-        }
-        if (info->var[2]!=null && info->var[2]!=v) 
-        { maybe_mark_not_in_use(info->var[2]);
-        }
-      }
+        maybe_mark_not_in_use (i);
 #     endif
     }
   }
@@ -1428,7 +1437,9 @@ void helpers_do_task
 # ifdef helpers_can_merge
 
   if (pipe0!=0 && (flags & HELPERS_MERGE_IN))
-  { struct task_info *m = &task[pipe0].info;
+  { 
+    struct task_info *m = &task[pipe0].info;
+
     if ((m->flags & HELPERS_MERGE_OUT) 
           && (! (flags & (HELPERS_MASTER_ONLY | HELPERS_MASTER_NOW))
                || ! (m->flags & HELPERS_MASTER_ONLY) 
@@ -1481,13 +1492,15 @@ void helpers_do_task
 
       if (merge)
       { 
-        /* Merge the new task with the existing task, with info at "m"
-           and indexed by "pipe0".  Save previous in1 and in2 values. */
+        /* Mark of the task being merged into as not in use, if they aren't 
+           used by another task. */
 
-        helpers_var_ptr old_var[3];
+#       ifdef helpers_mark_not_in_use
+          maybe_mark_not_in_use (pipe0);
+#       endif
 
-        old_var[1] = m->var[1];
-        old_var[2] = m->var[2];
+        /* Merge the new task with the existing task (which is indexed by
+           'pipe0' and has info at 'm'). */
 
         helpers_merge (out, task_to_do, op, in1, in2, 
                        &m->task_to_do, &m->op, &m->var[1], &m->var[2]);
@@ -1542,6 +1555,13 @@ void helpers_do_task
           helpers_var_ptr v;
           int j;
 
+          /* Mark the output as not being computed, since it won't be after
+             this task is done (immediately) in the master thread. */
+
+#         ifdef helpers_mark_not_being_computed
+            helpers_mark_not_being_computed (out);
+#         endif
+
           /* Set things up so the merged task can be done immediately. */
 
           m->flags |= HELPERS_MASTER_NOW;
@@ -1574,56 +1594,23 @@ void helpers_do_task
 
           pipe0 = m->pipe[0];
 
-          /* Mark the output as not being computed, since it won't be after
-             this task is done (immediately) in the master thread. */
-
-#         ifdef helpers_mark_not_being_computed
-            helpers_mark_not_being_computed (out);
-#         endif
-
-          /* Mark the inputs previously in use as not in use, if they aren't 
-             used by another task. */
-
-#         ifdef helpers_mark_not_in_use
-            v = old_var[1];
-            if (v!=null && v!=out)
-            { maybe_mark_not_in_use(v);
-            }
-            v = old_var[2];
-            if (v!=null && v!=out)
-            { maybe_mark_not_in_use(v);
-            }
-#         endif
-
           /* Set flag to process as a new task after unsetting the lock. */
 
           merge = 2;
         }
         else /* not master-now */
         {
-          helpers_var_ptr in1_m = m->var[1];
-          helpers_var_ptr in2_m = m->var[2];
-          helpers_var_ptr v;
-
-          /* Mark the inputs previously in use as not in use, if they aren't
-             the same as new inputs, and aren't used by another task. */
-
-#         ifdef helpers_mark_not_in_use
-            v = old_var[1];
-            if (v!=null && v!=out && v!=in1_m && v!=in2_m)
-            { maybe_mark_not_in_use(v);
-            }
-            v = old_var[2];
-            if (v!=null && v!=out && v!=in1_m && v!=in2_m)
-            { maybe_mark_not_in_use(v);
-            }
-#         endif
+          helpers_var_ptr m_in1 = m->var[1];
+          helpers_var_ptr m_in2 = m->var[2];
 
           /* Mark the new inputs as in use. */
 
+          m->not_in_use_before[1] = m_in1==null || !helpers_is_in_use(m_in1);
+          m->not_in_use_before[2] = m_in2==null || !helpers_is_in_use(m_in2);
+
 #         ifdef helpers_mark_in_use
-            if (in1_m!=null && in1_m!=out) helpers_mark_in_use(in1_m);
-            if (in2_m!=null && in2_m!=out) helpers_mark_in_use(in2_m);
+            if (m_in1!=null && m_in1!=out) helpers_mark_in_use(m_in1);
+            if (m_in2!=null && m_in2!=out) helpers_mark_in_use(m_in2);
 #         endif
         }
       }
@@ -1740,6 +1727,9 @@ out_of_merge:
     info->var[1] = in1;
     info->var[2] = in2;
     info->out_used = 0;
+
+    info->not_in_use_before[1] = in1==null || !helpers_is_in_use(in1);
+    info->not_in_use_before[2] = in2==null || !helpers_is_in_use(in2);
 
     info->pipe[0] = info->pipe[1] = info->pipe[2] = 0;
     if (ENABLE_TRACE>1)
