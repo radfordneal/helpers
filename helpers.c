@@ -1492,12 +1492,37 @@ void helpers_do_task
 
       if (merge)
       { 
-        /* Mark of the task being merged into as not in use, if they aren't 
-           used by another task. */
+        helpers_var_ptr old_var[3];
+        char old_not_in_use_before[3];
 
-#       ifdef helpers_mark_not_in_use
-          maybe_mark_not_in_use (pipe0);
-#       endif
+        /* If the merged task will be MASTER_NOW, unmark variables.  Otherwise,
+           remember what the input variables were before the merge, to help in
+           possible later unmarking. */
+
+        if (flags & HELPERS_MASTER_NOW)
+        { 
+          /* Mark the output as not being computed, since it won't be after
+             this task is done (immediately) in the master thread. */
+
+#         ifdef helpers_mark_not_being_computed
+            helpers_mark_not_being_computed (out);
+#         endif
+
+          /* Mark inputs as not being used, if not used by another task. */
+
+#         ifdef helpers_mark_not_in_use
+            maybe_mark_not_in_use (pipe0);
+#         endif
+        }
+
+        else /* not MASTER_NOW */
+        {
+          old_var[1] = m->var[1];
+          old_var[2] = m->var[2];
+
+          old_not_in_use_before[1] = m->not_in_use_before[1];
+          old_not_in_use_before[2] = m->not_in_use_before[2];
+        }
 
         /* Merge the new task with the existing task (which is indexed by
            'pipe0' and has info at 'm'). */
@@ -1531,7 +1556,7 @@ void helpers_do_task
 
           for (j = untaken_out; untaken[j]!=pipe0; j = (j+1) & QMask)
           { if (j==untaken_in)
-            { helpers_printf("MERGED TASK NOT IN UNTAKEN QUEUE!\n");
+            { helpers_printf("TASK TO MERGE INTO NOT IN UNTAKEN QUEUE!\n");
               abort(); /*exit(1);*/
             }
           }
@@ -1554,13 +1579,6 @@ void helpers_do_task
         { 
           helpers_var_ptr v;
           int j;
-
-          /* Mark the output as not being computed, since it won't be after
-             this task is done (immediately) in the master thread. */
-
-#         ifdef helpers_mark_not_being_computed
-            helpers_mark_not_being_computed (out);
-#         endif
 
           /* Set things up so the merged task can be done immediately. */
 
@@ -1600,13 +1618,41 @@ void helpers_do_task
         }
         else /* not master-now */
         {
+          helpers_var_ptr m_out = m->var[0];
           helpers_var_ptr m_in1 = m->var[1];
           helpers_var_ptr m_in2 = m->var[2];
 
+          /* Unmark old inputs if they're not also among the new inputs, and are
+             not in use by other tasks (mimic code in maybe_mark_not_in_use). */
+
+          int w;
+
+          for (w = 1; w<=2; w++)
+          { helpers_var_ptr v = old_var[w];
+            int j;
+            if (v!=null && v!=m_out && v!=m_in1 && v!=m_in2)
+            { for (j = (old_not_in_use_before[w] ? pipe0+1 : 0); 
+                   j<helpers_tasks; j++)
+              { struct task_info *einfo = &task[used[j]].info;
+                if (einfo->var[0]!=v && (einfo->var[1]==v || einfo->var[2]==v))
+                { char d;
+                  ATOMIC_READ_CHAR (d = einfo->done);
+                  if (!d) goto next;
+                }
+              }
+              helpers_mark_not_in_use(v);
+            }
+          next: ;
+          }
+
           /* Mark the new inputs as in use. */
 
-          m->not_in_use_before[1] = m_in1==null || !helpers_is_in_use(m_in1);
-          m->not_in_use_before[2] = m_in2==null || !helpers_is_in_use(m_in2);
+          m->not_in_use_before[1] = m_in1==null || !helpers_is_in_use(m_in1)
+              || m_in1==old_var[1] && old_not_in_use_before[1]
+              || m_in1==old_var[2] && old_not_in_use_before[2];
+          m->not_in_use_before[2] = m_in2==null || !helpers_is_in_use(m_in2)
+              || m_in2==old_var[1] && old_not_in_use_before[1]
+              || m_in2==old_var[2] && old_not_in_use_before[2];
 
 #         ifdef helpers_mark_in_use
             if (m_in1!=null && m_in1!=out) helpers_mark_in_use(m_in1);
