@@ -1520,8 +1520,10 @@ void helpers_do_task
           old_var[1] = m->var[1];
           old_var[2] = m->var[2];
 
-          old_not_in_use_before[1] = m->not_in_use_before[1];
-          old_not_in_use_before[2] = m->not_in_use_before[2];
+#         ifdef helpers_mark_not_in_use
+            old_not_in_use_before[1] = m->not_in_use_before[1];
+            old_not_in_use_before[2] = m->not_in_use_before[2];
+#         endif
         }
 
         /* Merge the new task with the existing task (which is indexed by
@@ -1618,41 +1620,45 @@ void helpers_do_task
         }
         else /* not master-now */
         {
-          helpers_var_ptr m_out = m->var[0];
           helpers_var_ptr m_in1 = m->var[1];
           helpers_var_ptr m_in2 = m->var[2];
 
-          /* Unmark old inputs if they're not also among the new inputs, and are
-             not in use by other tasks (mimic code in maybe_mark_not_in_use). */
+#         ifdef helpers_mark_not_in_use
 
-          int w;
+            /* Unmark old inputs if they're not also among the inputs used in
+               the new merged task, and are also not in use by other tasks 
+               (mimicking code in maybe_mark_not_in_use). */
 
-          for (w = 1; w<=2; w++)
-          { helpers_var_ptr v = old_var[w];
-            int j;
-            if (v!=null && v!=m_out && v!=m_in1 && v!=m_in2)
-            { for (j = (old_not_in_use_before[w] ? pipe0+1 : 0); 
-                   j<helpers_tasks; j++)
-              { struct task_info *einfo = &task[used[j]].info;
-                if (einfo->var[0]!=v && (einfo->var[1]==v || einfo->var[2]==v))
-                { char d;
-                  ATOMIC_READ_CHAR (d = einfo->done);
-                  if (!d) goto next;
+            int w;
+
+            for (w = 1; w<=2; w++)
+            { helpers_var_ptr v = old_var[w];
+              int j;
+              if (v!=null && v!=out && v!=m_in1 && v!=m_in2)
+              { for (j = (old_not_in_use_before[w] ? pipe0+1 : 0); 
+                     j<helpers_tasks; j++)
+                { struct task_info *einfo = &task[used[j]].info;
+                  if (einfo->var[0]!=v && (einfo->var[1]==v||einfo->var[2]==v))
+                  { char d;
+                    ATOMIC_READ_CHAR (d = einfo->done);
+                    if (!d) goto next;
+                  }
                 }
+                helpers_mark_not_in_use(v);
               }
-              helpers_mark_not_in_use(v);
+            next: ;
             }
-          next: ;
-          }
 
-          /* Mark the new inputs as in use. */
+            /* Mark the new inputs as in use. */
 
-          m->not_in_use_before[1] = m_in1==null || !helpers_is_in_use(m_in1)
-              || m_in1==old_var[1] && old_not_in_use_before[1]
-              || m_in1==old_var[2] && old_not_in_use_before[2];
-          m->not_in_use_before[2] = m_in2==null || !helpers_is_in_use(m_in2)
-              || m_in2==old_var[1] && old_not_in_use_before[1]
-              || m_in2==old_var[2] && old_not_in_use_before[2];
+            m->not_in_use_before[1] = m_in1==null || !helpers_is_in_use(m_in1)
+                || m_in1==old_var[1] && old_not_in_use_before[1]
+                || m_in1==old_var[2] && old_not_in_use_before[2];
+            m->not_in_use_before[2] = m_in2==null || !helpers_is_in_use(m_in2)
+                || m_in2==old_var[1] && old_not_in_use_before[1]
+                || m_in2==old_var[2] && old_not_in_use_before[2];
+
+#         endif
 
 #         ifdef helpers_mark_in_use
             if (m_in1!=null && m_in1!=out) helpers_mark_in_use(m_in1);
@@ -1774,8 +1780,10 @@ out_of_merge:
     info->var[2] = in2;
     info->out_used = 0;
 
-    info->not_in_use_before[1] = in1==null || !helpers_is_in_use(in1);
-    info->not_in_use_before[2] = in2==null || !helpers_is_in_use(in2);
+#   ifdef helpers_mark_not_in_use
+      info->not_in_use_before[1] = in1==null || !helpers_is_in_use(in1);
+      info->not_in_use_before[2] = in2==null || !helpers_is_in_use(in2);
+#   endif
 
     info->pipe[0] = info->pipe[1] = info->pipe[2] = 0;
     if (ENABLE_TRACE>1)
