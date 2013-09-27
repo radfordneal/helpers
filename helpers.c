@@ -1500,11 +1500,10 @@ void helpers_do_task
   }
 
   /* Perhaps try to merge the new task with the task, indexed by pipe0, that 
-     pipes into its output variable.  If a merge can be done, we need to
-     move to the master-only queue if the new task is master-only, or
-     do the task now, if the new task is master-now, or we just return
-     otherwise, with the merged task in the untaken queue where the old
-     one was. */
+     pipes into its output variable.  If a merge can be done, we may need to
+     move the new task to the master-only queue if the new task is master-only,
+     or do it now, if the new task is master-now, or we may just return, if
+     with the merged task can stay in the same queue as the old one. */
 
 # ifdef helpers_can_merge
 
@@ -1612,26 +1611,29 @@ void helpers_do_task
            isn't master-now, or if the task merged into is not master-only
            and the new task is neither master-only nor master-now.  When
            the new task is master-now, the task merged into is removed from
-           its queue, then done immediately without being added to a queue. */
+           its queue, but not added to a queue, since it will be done 
+           immediately. */
 
         if (m->flags & HELPERS_MASTER_ONLY)
         { if (flags & HELPERS_MASTER_NOW)
           { 
-            /* Remove the task to merge into from the master-only queue. */
+            /* Remove the task to merge into from the master-only queue.
+               It must be at the head of the queue (checked above). */
 
             master_only_out = (master_only_out + 1) & QMask;
           }
         }
         else if (flags & (HELPERS_MASTER_ONLY | HELPERS_MASTER_NOW))
         { 
-          /* Remove the task to merge into from the untaken queue. */
+          /* Remove the task to merge into from the untaken queue.  Note
+             that start_lock will have been set earlier, so this is OK. */
 
           int j;
 
           for (j = untaken_out; untaken[j]!=pipe0; j = (j+1) & QMask)
           { if (j==untaken_in)
             { helpers_printf("TASK TO MERGE INTO NOT IN UNTAKEN QUEUE!\n");
-              abort(); /*exit(1);*/
+              exit(1);
             }
           }
 
@@ -1640,7 +1642,7 @@ void helpers_do_task
 
           if (! (flags & HELPERS_MASTER_NOW))
           { 
-            /* Insert the merged task in the master-only queue. */
+            /* Add the merged task to the master-only queue. */
 
             m->flags |= HELPERS_MASTER_ONLY;
 
