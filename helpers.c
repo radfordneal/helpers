@@ -274,7 +274,8 @@ static union task_entry
                                       the input of a task scheduled later */
     char not_in_use_before[3];     /* When 1, indicates that in1/in2 was not
                                       in use before this task was scheduled;
-                                      not_in_use_before[0] isn't actually used*/
+                                      not_in_use_before[0] isn't actually used;
+                                      others used only if var is in use here */
 
     /* The fields below are used only when ENABLE_TRACE is 2 or 3. */
 
@@ -1486,7 +1487,8 @@ void helpers_do_task
 
   /* Find the most-recently-scheduled task (if any) that outputs the output
      variable of this new task, setting pipe0 to the task index, or zero. 
-     If one is found, "uh" is left pointing to its position in "used". */
+     If one is found, "uh" is left pointing to its position in "used" (needed
+     below when merging results in a master-now task). */
 
   pipe0 = 0;
   if (out!=null && helpers_is_being_computed(out) && helpers_tasks>0)
@@ -1509,6 +1511,9 @@ void helpers_do_task
 
   if (pipe0!=0 && (flags & HELPERS_MERGE_IN))
   { 
+    helpers_var_ptr old_var[3];
+    char old_not_in_use_before[3];
+
     struct task_info *m = &task[pipe0].info;
 
     if ((m->flags & HELPERS_MERGE_OUT) 
@@ -1518,9 +1523,8 @@ void helpers_do_task
           && helpers_can_merge (out, task_to_do, op, in1, in2, 
                                 m->task_to_do, m->op, m->in1, m->in2))
     { 
-      /* Set "merge" to 1 if we can merge with "m" (hasn't started running)
-         and later to 2 if the merged task can be done immediately.  Set 
-         "locked" to 1 if start_lock needs to be unset later. */
+      /* Set "merge" to 1 if we can merge with "m" (it hasn't started running).
+         Set "locked" to 1 if start_lock needs to be unset later. */
 
       int merge = 1, locked = 0;
 
@@ -1563,10 +1567,7 @@ void helpers_do_task
 
       if (merge)
       { 
-        helpers_var_ptr old_var[3];
-        char old_not_in_use_before[3];
-
-        /* If the merged task will be MASTER_NOW, unmark variables.  Otherwise,
+        /* If the merged task will be master-now, unmark variables.  Otherwise,
            remember what the input variables were before the merge, to help in
            possible later unmarking. */
 
@@ -1586,7 +1587,7 @@ void helpers_do_task
 #         endif
         }
 
-        else /* not MASTER_NOW */
+        else /* not master-now */
         {
           old_var[1] = m->var[1];
           old_var[2] = m->var[2];
@@ -1650,96 +1651,10 @@ void helpers_do_task
             master_only_in = (master_only_in + 1) & QMask;
           }
         }
-
-        if (flags & HELPERS_MASTER_NOW)
-        { 
-          helpers_var_ptr v;
-          int j;
-
-          /* Set things up so the merged task can be done immediately. */
-
-          m->flags |= HELPERS_MASTER_NOW;
-
-          if (trace) 
-          { trace_merged (pipe0, flags0, task_to_do, op, out, in1, in2);
-          }
-
-          /* Replace arguments of this function by merged task's values. */
-
-          flags      = m->flags;
-          task_to_do = m->task_to_do;
-          op         = m->op;
-          in1        = m->var[1];
-          in2        = m->var[2];
-
-          /* Remove the merged task from "used".  The position of the
-             merged task in "used" was left in "uh" by code above. */
-
-          helpers_tasks -= 1;
-          mtix *ue = &used[helpers_tasks];
-          while (uh!=ue) 
-          { *uh = *(uh+1);
-            uh += 1;
-          }
-          *uh = pipe0;
-
-          /* Update pipe0 to be the task producing output for the merged 
-             task (or zero). */
-
-          pipe0 = m->pipe[0];
-
-          /* Set flag to process as a new task after unsetting the lock. */
-
-          merge = 2;
-        }
-        else /* not master-now */
-        {
-          helpers_var_ptr m_in1 = m->var[1];
-          helpers_var_ptr m_in2 = m->var[2];
-
-#         ifdef helpers_mark_not_in_use
-
-            /* Unmark old inputs if they're not also among the inputs used in
-               the new merged task, and are also not in use by other tasks 
-               (mimicking code in maybe_mark_not_in_use). */
-
-            int w;
-
-            for (w = 1; w<=2; w++)
-            { helpers_var_ptr v = old_var[w];
-              int j;
-              if (v!=null && v!=out && v!=m_in1 && v!=m_in2)
-              { for (j = (old_not_in_use_before[w] ? pipe0+1 : 0); 
-                     j<helpers_tasks; j++)
-                { struct task_info *einfo = &task[used[j]].info;
-                  if (einfo->var[0]!=v && (einfo->var[1]==v||einfo->var[2]==v))
-                  { char d;
-                    ATOMIC_READ_CHAR (d = einfo->done);
-                    if (!d) goto next;
-                  }
-                }
-                helpers_mark_not_in_use(v);
-              }
-            next: ;
-            }
-
-            /* Mark the new inputs as in use. */
-
-            m->not_in_use_before[1] = m_in1==null || !helpers_is_in_use(m_in1)
-                || m_in1==old_var[1] && old_not_in_use_before[1]
-                || m_in1==old_var[2] && old_not_in_use_before[2];
-            m->not_in_use_before[2] = m_in2==null || !helpers_is_in_use(m_in2)
-                || m_in2==old_var[1] && old_not_in_use_before[1]
-                || m_in2==old_var[2] && old_not_in_use_before[2];
-
-#         endif
-
-#         ifdef helpers_mark_in_use
-            if (m_in1!=null && m_in1!=out) helpers_mark_in_use(m_in1);
-            if (m_in2!=null && m_in2!=out) helpers_mark_in_use(m_in2);
-#         endif
-        }
       }
+
+      /* Queue manipulations are all done, so release start_lock if it had 
+         been set above. */
   
 #     ifndef HELPERS_NO_MULTITHREADING
       if (locked)
@@ -1747,8 +1662,107 @@ void helpers_do_task
       }
 #     endif
 
-      if (merge==1)
-      { if (trace) trace_merged(pipe0, flags0, task_to_do, op, out, in1, in2);
+      /* If we didn't merge, go on to process the new task as usual. */
+
+      if (!merge) 
+      { goto out_of_merge;
+      }
+
+      /* If we merged to a master-now task, set up to do it immediately. 
+         Otherwise, fiddle markers and return with it left in a queue. */
+
+      if (flags & HELPERS_MASTER_NOW)
+      { 
+        helpers_var_ptr v;
+        int j;
+
+        /* Set things up so the merged task can be done immediately. */
+
+        m->flags |= HELPERS_MASTER_NOW;
+
+        if (trace) 
+        { trace_merged (pipe0, flags0, task_to_do, op, out, in1, in2);
+        }
+
+        /* Replace arguments of this function by merged task's values. */
+
+        flags      = m->flags;
+        task_to_do = m->task_to_do;
+        op         = m->op;
+        in1        = m->var[1];
+        in2        = m->var[2];
+
+        /* Remove the merged task from "used".  The position of the
+           merged task in "used" was left in "uh" by code above. */
+
+        helpers_tasks -= 1;
+        mtix *ue = &used[helpers_tasks];
+        while (uh!=ue) 
+        { *uh = *(uh+1);
+          uh += 1;
+        }
+        *uh = pipe0;
+
+        /* Update pipe0 to be the task producing output for the merged 
+           task (or zero). */
+
+        pipe0 = m->pipe[0];
+      }
+      else /* not master-now */
+      {
+        helpers_var_ptr m_in1 = m->var[1];
+        helpers_var_ptr m_in2 = m->var[2];
+
+        /* Unmark old in-use inputs if they're not also among the inputs used
+           in the new merged task, and are also not in use by other tasks 
+           (mimicking code in maybe_mark_not_in_use). */
+
+#       ifdef helpers_mark_not_in_use
+        {
+          int w;
+
+          for (w = 1; w<=2; w++)
+          { helpers_var_ptr v = old_var[w];
+            int j;
+            if (v!=null && v!=out && v!=m_in1 && v!=m_in2)
+            { for (j = (old_not_in_use_before[w] ? pipe0+1 : 0); 
+                   j<helpers_tasks; j++)
+              { struct task_info *einfo = &task[used[j]].info;
+                if (einfo->var[0]!=v && (einfo->var[1]==v || einfo->var[2]==v))
+                { char d;
+                  ATOMIC_READ_CHAR (d = einfo->done);
+                  if (!d) goto next;
+                }
+              }
+              helpers_mark_not_in_use(v);
+            }
+          next: ;
+          }
+        }
+#       endif
+
+        /* Update the not_in_use_before flags. */
+
+#       ifdef helpers_mark_not_in_use
+          m->not_in_use_before[1] = m_in1==null || !helpers_is_in_use(m_in1)
+              || m_in1==old_var[1] && old_not_in_use_before[1]
+              || m_in1==old_var[2] && old_not_in_use_before[2];
+          m->not_in_use_before[2] = m_in2==null || !helpers_is_in_use(m_in2)
+              || m_in2==old_var[1] && old_not_in_use_before[1]
+              || m_in2==old_var[2] && old_not_in_use_before[2];
+#       endif
+
+        /* Mark the new inputs as in use. */
+
+#       ifdef helpers_mark_in_use
+          if (m_in1!=null && m_in1!=out) helpers_mark_in_use(m_in1);
+          if (m_in2!=null && m_in2!=out) helpers_mark_in_use(m_in2);
+#       endif
+
+        if (trace) 
+        { trace_merged (pipe0, flags0, task_to_do, op, out, in1, in2);
+        }
+
         return;
       }
     }
