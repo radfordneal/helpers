@@ -1717,7 +1717,7 @@ void helpers_do_task
            in the new merged task, and are also not in use by other tasks 
            (mimicking code in maybe_mark_not_in_use). */
 
-#       ifdef helpers_mark_not_in_use
+#       ifdef helpers_mark_in_use
         {
           int w;
 
@@ -1725,7 +1725,7 @@ void helpers_do_task
           { helpers_var_ptr v = old_var[w];
             int j;
             if (v!=null && v!=out && v!=m_in1 && v!=m_in2)
-            { for (j = (old_not_in_use_before[w] ? pipe0+1 : 0); 
+            { for (j = (m->not_in_use_before[w] ? pipe0+1 : 0); 
                    j<helpers_tasks; j++)
               { struct task_info *einfo = &task[used[j]].info;
                 if (einfo->var[0]!=v && (einfo->var[1]==v || einfo->var[2]==v))
@@ -1738,25 +1738,21 @@ void helpers_do_task
             }
           next: ;
           }
-        }
-#       endif
 
-        /* Update the not_in_use_before flags. */
+          /* Update the not_in_use_before flags. */
 
-#       ifdef helpers_mark_not_in_use
           m->not_in_use_before[1] = m_in1==null || !helpers_is_in_use(m_in1)
               || m_in1==old_var[1] && old_not_in_use_before[1]
               || m_in1==old_var[2] && old_not_in_use_before[2];
           m->not_in_use_before[2] = m_in2==null || !helpers_is_in_use(m_in2)
               || m_in2==old_var[1] && old_not_in_use_before[1]
               || m_in2==old_var[2] && old_not_in_use_before[2];
-#       endif
 
-        /* Mark the new inputs as in use. */
+          /* Mark the new inputs as in use. */
 
-#       ifdef helpers_mark_in_use
           if (m_in1!=null && m_in1!=out) helpers_mark_in_use(m_in1);
           if (m_in2!=null && m_in2!=out) helpers_mark_in_use(m_in2);
+        }
 #       endif
 
         if (trace) 
@@ -1869,8 +1865,12 @@ out_of_merge:
     info->out_used = 0;
 
 #   ifdef helpers_mark_not_in_use
-      info->not_in_use_before[1] = in1==null || !helpers_is_in_use(in1);
-      info->not_in_use_before[2] = in2==null || !helpers_is_in_use(in2);
+      if (in1!=null && in1!=out)
+      { info->not_in_use_before[1] = !helpers_is_in_use(in1);
+      }
+      if (in2!=null && in2!=out)
+      { info->not_in_use_before[2] = !helpers_is_in_use(in2);
+      }
 #   endif
 
     info->pipe[0] = info->pipe[1] = info->pipe[2] = 0;

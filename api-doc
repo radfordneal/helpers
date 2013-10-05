@@ -340,9 +340,11 @@ uncompleted task, unless it is also the output of that task.  It can
 therefore happen that a variable is simultaneously "being computed"
 and "not in use".
 
-When one of these macros is not defined in helpers-app.h, the
+When one pair of these macros is not defined in helpers-app.h, the
 corresponding marker will not be set or cleared, which is sensible
-only if this marker is not used by the application.
+only if this marker is not used by the application.  An application
+should either define both a "mark" macro and the corresponding
+"mark_not" macro, or define neither macro in the pair.
 
 These macros will be invoked only in the master thread, when a task is
 scheduled by helpers_do_task, or when helpers_do_task or one of the
