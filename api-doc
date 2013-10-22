@@ -818,10 +818,12 @@ necessary, the helpers_can_merge macro must ensure can be satisfied):
 The task resulting from merging a new and an old task will have flag
 bits HELPERS_MERGE_OUT, HELPERS_MASTER_ONLY, HELPERS_MASTER_NOW, or
 HELPERS_PIPE_OUT if the new task had the corresponding flag bit, and
-it will have flag bits HELPERS_PIPE_IN0, HELPERS_PIPE_IN1, or
-HELPERS_PIPE_IN2 if the old task had the corresponding flag bit. The
-HELPERS_MERGE_IN flag bit will not be set for the merged task (it
-would have no effect in any case).
+it will also have flag bits HELPERS_PIPE_IN0, HELPERS_PIPE_IN1,
+HELPERS_PIPE_IN2, or HELPERS_MASTER_ONLY if the old task had the
+corresponding flag bit (except HELPERS_MASTER_ONLY will be overridden
+by HELPERS_MASTER_NO in the new task).  The HELPERS_MERGE_IN flag bit
+will not be set for the merged task (it would have no effect in any
+case).
 
 Task merging can be disabled by calling helpers_no_merging with
 argument 1 (and can be re-enabled by calling helpers_no_merging with
