@@ -1579,12 +1579,27 @@ void helpers_do_task
 
       if (merge)
       { 
-        /* If the merged task will be master-now, unmark variables.  Otherwise,
-           remember what the input variables were before the merge, to help in
-           possible later unmarking. */
+        double *task_data_loc;
+
+        /* If the merged task will be master-now, unmark variables.  Also
+           copy the task_data into pseudo-task entry 0, since that's where
+           the task running as master-now will see it.
+
+           For non-master-now tasks, remember what the input variables were 
+           before the merge, to help in possible later unmarking.  Also,
+           sets the pointer to task_data. */
 
         if (flags & HELPERS_MASTER_NOW)
         { 
+          int i;
+
+          /* Copy task_data to where it will be seen by master-now task. */
+
+          task_data_loc = task[0].info.task_data;
+          for (i = 0; i<HELPERS_TASK_DATA_AMT; i++)
+          { task_data_loc[i] = m->task_data[i];
+          }
+
           /* Mark the output as not being computed, since it won't be after
              this task is done (immediately) in the master thread. */
 
@@ -1602,6 +1617,8 @@ void helpers_do_task
 
         else /* not master-now */
         {
+          task_data_loc = m->task_data;
+
           old_var[1] = m->var[1];
           old_var[2] = m->var[2];
         }
@@ -1609,9 +1626,11 @@ void helpers_do_task
         /* Merge the new task with the existing task (which is indexed by
            'pipe0' and has info at 'm'). */
 
+        double *td;
+        
         helpers_merge (out, task_to_do, op, in1, in2, 
-                            &m->task_to_do, &m->op, &m->var[1], &m->var[2],
-                            m->task_data);
+                       &m->task_to_do, &m->op, &m->var[1], &m->var[2],
+                       task_data_loc);
 
         m->flags &= ~ (HELPERS_MERGE_IN_OUT | HELPERS_PIPE_OUT);
         m->flags |= (flags & (HELPERS_MERGE_OUT | HELPERS_PIPE_OUT));
