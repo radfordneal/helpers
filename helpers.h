@@ -123,7 +123,7 @@ void helpers_master (void);          /* The master procedure, does it all */
 
 #else
 
-/* NON_STUB PROCEDURES/MACROS FOR WHEN THERE MAY BE HELPER THREADS. */
+/* NON-STUB PROCEDURES/VARIAABLES/MACROS FOR WHEN THERE MAY BE HELPER THREADS.*/
 
 extern int helpers_num;                    /* Number of helper threads */
 
@@ -212,6 +212,7 @@ void helpers_no_pipelining (int);    /* Disable/re-enable pipelining */
 
 #define helpers_tasks 0
 #define helpers_are_disabled 1
+#define helpers_not_merging 1
 
 #define helpers_startup(n)           (helpers_master())
 
