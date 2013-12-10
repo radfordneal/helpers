@@ -871,9 +871,12 @@ deciding on a computational strategy.
 
 The global variable helpers_tasks is set to the number of currently
 outstanding tasks, which have been scheduled by the master, but which
-the master has not noticed the completion of.  If this is zero, the
-master can be sure that there are no variables that are in use or
-being computed, without checking them individually.
+the master has either not noticed have completed, or which are still
+in the task table even though they have completed because they
+produced pipelined output for a task that has not completed.  If
+helpers_tasks is zero, the master can be sure that there are no
+variables that are in use or being computed, without checking them
+individually.
 
 To help the master decide how many tasks should be created to do a
 computation in parallel, the helpers_idle function is provided, which

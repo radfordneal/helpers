@@ -243,46 +243,54 @@ typedef int mtix;           /* Task index for use in one thread only */
 
    Entries are forced to be 256 bytes in size by the presence of the "space" 
    field (assuming that the "info" field is no more than 256 bytes in size). 
-   This makes index arithmetic faster, and may prevent possible performance 
+   This makes index arithmetic faster, and may reduce possible performance 
    degradation from cache invalidation when one entry is updated and a 
    different entry is then accessed.  Fields updated by helpers are all put 
-   first to increase the chance that they are not split between cache lines
-   (since the start of the structure is likely aligned to some extent).
+   near the start, to increase the chance that they are not split between cache
+   lines (since the start of the structure is likely aligned to some extent).
 */
 
 static union task_entry 
 { 
   struct task_info               /* Information on a task */
   { 
-    /* Fields initialized by the master, updated by helpers and the master. */
+    /* Fields initialized by the master and then not changed until the task
+       entry is re-used.  They are read by helpers and the master. */
 
-    helpers_size_t amt_out;        /* Number of parts produced for output */
+    short flags;                   /* Flags task was scheduled with */
+    tix pipe[3];                   /* Tasks producing inputs, or 0 */
+
+    /* Fields initialized by the master, read or updated by helpers and master.
+       The "needed" field is written by the master, and read by the master 
+       and by helpers without synchronization. */
+
     hix helper;                    /* Helper that took this task, or 0, or -1 */
     char done;                     /* Has this task finished? */
-
-    /* Fields below are written only by the master, but read by helpers too. 
-       The "needed" field may be written by the master and read by helpers
-       without synchronization. */
-
     signed char needed;            /* Needed by master? (+1 finish, -1 start) */
-    tix pipe[3];                   /* Tasks producing inputs, 0 when done */
-    short flags;                   /* Flags task was scheduled with */
+    helpers_size_t amt_out;        /* Number of parts produced for output */
+
+    /* More fields initialized by the master and then not changed until the task
+       entry is re-used.  They are read by helpers and the master. */
+
     helpers_task_proc *task_to_do; /* Task procedure to execute */
     helpers_op_t op;               /* The unsigned integer operand */
     helpers_var_ptr var[3];        /* The output variable, [0], and the input 
                                       variables, [1] and [2]; any may be null */
-    double task_data [HELPERS_TASK_DATA_AMT]; /* Data the task procedure may
-                                      look at - currently only usable for tasks
-                                      that result from merging other tasks */
 
-    /* The next two fields are used only by the master. */
+    /* Fields used only by the master. */
 
-    char out_used;                 /* Set to 1 if the output has been used as
-                                      the input of a task scheduled later */
+    short out_used;                /* Count of how many times the output is
+                                      used by a task scheduled later. */
     char not_in_use_before[3];     /* When 1, indicates that in1/in2 was not
                                       in use before this task was scheduled;
                                       not_in_use_before[0] isn't actually used;
                                       others used only if var is in use here */
+    char noticed_done;             /* Has master noticed task is done? */
+
+    /* Data the task procedure may look at - currently only usable for tasks
+       that result from merging other tasks */
+
+    double task_data [HELPERS_TASK_DATA_AMT]; 
 
     /* The fields below are used only when ENABLE_TRACE is 2 or more. */
 
@@ -508,6 +516,7 @@ static void trace_task_list (void)
                           var_name(info->var[0]), var_marks(info->var[0]),
                           var_name(info->var[1]), var_marks(info->var[1]),
                           var_name(info->var[2]), var_marks(info->var[2]));
+      helpers_printf("  noticed_done: %d\n",  (int) info->noticed_done);
       helpers_printf("  out_used: %d\n",      (int) info->out_used);
       helpers_printf("  not_in_use_before[]: %d %d %d\n", 
                                               (int) info->not_in_use_before[0],
@@ -1904,11 +1913,29 @@ out_of_merge:
 
     t = used[helpers_tasks];
     info = &task[t].info;
+
+    info->flags = flags;
     info->task_to_do = task_to_do;
     info->op = op;
     info->var[0] = out;
     info->var[1] = in1;
     info->var[2] = in2;
+
+    /* Initialize to indicate nobody is doing this task, or needs its output. */
+
+    info->helper = -1;
+    info->needed = 0;
+
+    /* Clear 'done' and 'amt_out' in the task info for the new task.  Not
+       necessary in a task done directly in the master (since never seen). */
+
+    info->done = 0;
+    info->amt_out = 0;
+
+    /* Initialize variables used by the master in managing the list of 
+       tasks in 'used'. */
+
+    info->noticed_done = 0;
     info->out_used = 0;
 
 #   ifdef helpers_mark_not_in_use
@@ -1920,24 +1947,14 @@ out_of_merge:
       }
 #   endif
 
-    info->pipe[0] = info->pipe[1] = info->pipe[2] = 0;
+    /* Initialize extra trace info for this task. */
+
     if (ENABLE_TRACE>1)
     { info->last_amt[0] = info->last_amt[1] = info->last_amt[2] = 0;
     }
     if (ENABLE_TRACE>2)
     { info->start_wtime = info->done_wtime = 0.0;
     }
-
-    info->flags = flags;
-
-    info->helper = -1; /* nobody is doing the task yet */
-    info->needed = 0;  /* master isn't currently waiting for task to finish */
-
-    /* Clear 'done' and 'amt_out' in the task info for the new task.  Not
-       necessary in a task done directly in the master (since never seen). */
-
-    info->done = 0;
-    info->amt_out = 0;
   }
 
   /* Look for the previous task (if any) outputting the output variable of the
@@ -1960,7 +1977,7 @@ out_of_merge:
 
   info->pipe[0] = pipe0;
   if (pipe0>0)
-  { task[pipe0].info.out_used = 1;
+  { task[pipe0].info.out_used += 1;
   }
 
   /* For each input variable in the new task, find the task (if any) that is
@@ -1995,12 +2012,12 @@ out_of_merge:
     { mtix uhi = *uh;
       if (task[uhi].info.var[0]==in1)
       { info->pipe[1] = uhi;
-        task[uhi].info.out_used = 1;
+        task[uhi].info.out_used += 1;
         goto search_in2;
       }
       if (task[uhi].info.var[0]==in2)
       { info->pipe[2] = uhi;
-        task[uhi].info.out_used = 1;
+        task[uhi].info.out_used += 1;
         goto search_in1;
       }
     } while (--uh>=used);
@@ -2012,7 +2029,7 @@ out_of_merge:
     { mtix uhi = *uh;
       if (task[uhi].info.var[0]==in1)
       { info->pipe[1] = uhi;
-        task[uhi].info.out_used = 1;
+        task[uhi].info.out_used += 1;
         goto search_done;
       }
     } while (--uh>=used);
@@ -2024,7 +2041,7 @@ out_of_merge:
     { mtix uhi = *uh;
       if (task[uhi].info.var[0]==in2)
       { info->pipe[2] = uhi;
-        task[uhi].info.out_used = 1;
+        task[uhi].info.out_used += 1;
         goto search_done;
       }
     } while (--uh>=used);
@@ -2501,101 +2518,100 @@ void helpers_amount_out (helpers_size_t amt)
 #endif
 
 
-/* GET THE AMOUNT OF AN INPUT THAT HAS BEEN PRODUCED SO FAR.  Care is needed to
-   handle the possibility that the task producing the input will terminate
-   around this time, and another task with the same task index will immediately
-   start.  To handle this, the amt_out field for the task producing the
-   input is read before a flush, and termination of the input task is checked
-   after the flush.  If that check says the input task hadn't terminated at
-   the later time, the earlier read before the flush must have obtained amt_out
-   for that input task, not some later task.  If the input task has terminated,
-   the maximum passed is returned.  No flush is done at the beginning - at 
-   worst, fresh values will be obtained on the next call. */
+/* GET THE AMOUNT OF AN INPUT THAT HAS BEEN PRODUCED SO FAR.  If the
+   pipe field for the input in the info for this task is zero, we just
+   return the maximum.  Otherwise, we see whether the task producing
+   the input has set its 'done' flag, and if so, follow the source of
+   the output back until a task that isn't done is found, or a pipe
+   field of zero if reached.  Note that pipe fields are set only when
+   a task is created, and hence can be read without synchronization,
+   but the 'done' flags are set by the helpers.  A FLUSH is done to
+   ensure that we see recent values of these 'done' flags, but correct
+   operation does not depend on them being absolutely up-to-date,
+   since the task entries involved will not be re-used until this
+   process terminates. */
 
 #ifndef HELPERS_NO_MULTITHREADING
 
 helpers_size_t helpers_avail0 (helpers_size_t mx)
 {
-  struct task_info *info = this_task_info;
-
+  struct task_info *info;
   helpers_size_t n;
   char d;
   tix p;
 
-  ATOMIC_READ_CHAR (p = info->pipe[0]);
-  if (p == 0) return mx;
-
-  ATOMIC_READ_CHAR (d = task[p].info.done);
-  if (d) return mx;
-
-  ATOMIC_READ_SIZE (n = task[p].info.amt_out);
+  p = this_task_info->pipe[0];
+  if (p==0) return mx;
 
   FLUSH;
 
-  ATOMIC_READ_CHAR (p = info->pipe[0]);
-  if (p==0) return mx;
-
-  if (ENABLE_TRACE>1)
-  { if (info->first_amt[0]==0) info->first_amt[0] = n;
+  for (;;)
+  { info = &task[p].info;
+    ATOMIC_READ_CHAR (d = info->done);
+    if (!d)
+    { ATOMIC_READ_SIZE (n = info->amt_out);
+      if (ENABLE_TRACE>1)
+      { if (info->first_amt[0]==0) info->first_amt[0] = n;
+      }
+      return n;
+    }
+    p = info->pipe[0];
+    if (p==0) return mx;
   }
-
-  return n;
 }
 
 helpers_size_t helpers_avail1 (helpers_size_t mx)
 {
-  struct task_info *info = this_task_info;
-
+  struct task_info *info;
   helpers_size_t n;
   char d;
   tix p;
 
-  ATOMIC_READ_CHAR (p = info->pipe[1]);
-  if (p == 0) return mx;
-
-  ATOMIC_READ_CHAR (d = task[p].info.done);
-  if (d) return mx;
-
-  ATOMIC_READ_SIZE (n = task[p].info.amt_out);
+  p = this_task_info->pipe[1];
+  if (p==0) return mx;
 
   FLUSH;
 
-  ATOMIC_READ_CHAR (p = info->pipe[1]);
-  if (p==0) return mx;
-
-  if (ENABLE_TRACE>1)
-  { if (info->first_amt[1]==0) info->first_amt[1] = n;
+  for (;;)
+  { info = &task[p].info;
+    ATOMIC_READ_CHAR (d = info->done);
+    if (!d)
+    { ATOMIC_READ_SIZE (n = info->amt_out);
+      if (ENABLE_TRACE>1)
+      { if (info->first_amt[1]==0) info->first_amt[1] = n;
+      }
+      return n;
+    }
+    p = info->pipe[0];
+    if (p==0) return mx;
   }
-
-  return n;
 }
 
 helpers_size_t helpers_avail2 (helpers_size_t mx)
 {
-  struct task_info *info = this_task_info;
-
+  struct task_info *info;
   helpers_size_t n;
   char d;
   tix p;
 
-  ATOMIC_READ_CHAR (p = info->pipe[2]);
-  if (p == 0) return mx;
-
-  ATOMIC_READ_CHAR (d = task[p].info.done);
-  if (d) return mx;
-
-  ATOMIC_READ_SIZE (n = task[p].info.amt_out);
+  p = this_task_info->pipe[2];
+  if (p==0) return mx;
 
   FLUSH;
 
-  ATOMIC_READ_CHAR (p = info->pipe[2]);
-  if (p==0) return mx;
-
-  if (ENABLE_TRACE>1)
-  { if (info->first_amt[2]==0) info->first_amt[2] = n;
+  for (;;)
+  { info = &task[p].info;
+    ATOMIC_READ_CHAR (d = info->done);
+    if (!d)
+    { ATOMIC_READ_SIZE (n = info->amt_out);
+      if (ENABLE_TRACE>1)
+      { if (info->first_amt[2]==0) info->first_amt[2] = n;
+      }
+      return n;
+    }
+    p = info->pipe[0];
+    if (p==0) return mx;
   }
-
-  return n;
 }
 
 #endif
