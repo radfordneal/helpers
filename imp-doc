@@ -93,25 +93,47 @@ ATOMIC_WRITE_... macros simply expand to the given statement when
 OpenMP 3.0 is used.  In this situation, correctness of the helpers
 implementation requires that reads and writes of variables of type
 char (signed or unsigned) and of type helpers_size_t be atomic without
-use of these directives, as a consequence of the architecture, at
-least when aligned as they are by the C compiler.  That is, if one
+use of these directives, as a consequence of the machine architecture,
+at least when aligned as they are by the C compiler.  That is, if one
 thread writes such a value to some address while another thread reads
 the value from that same address, without OpenMP synchronization, the
 value read will either be the value before the write or the value that
 was written.  Atomicity of simultaneous writes is not required, as
 they do not occur in this helpers implementation.
 
-This implementation is compatible with their being a "store buffer",
-which can lead to two threads both seeing their unsynchronized writes
-as occurring before the other thread's write.  The unsynchronized data
-transfers done are unidirectional, with one thread writing and another
-thread (or threads) reading, which will operate correctly with a store
-buffer as long as the ordering of writes and reads is preserved, which
-should be the case when suitable OpenMP flush directives are used.
+The OpenMP specification is informal and open to interpretation.  An
+expansive reading of it appears to be incompatible with the gcc
+implementation for Intel processors, in which flush directives appear
+to merely generate Intel "mfence" instructions (and perhaps disable
+some reordering of operations that the compiler's optimizer might
+otherwise have performed), which is not sufficient to ensure that data
+in the cache has actually been stored in main memory.  This helpers
+implementation therefore uses a somewhat conservative interpretation
+of what OpenMP guarantees.
 
-This helpers implementation does not rely on the flushes that are
-implied by the OpenMP 3.1 atomic read and write directives - instead,
-explicit flush operations are done wherever required.
+In particular, this implementation is compatible with there being a
+"store buffer", which can lead to two threads both seeing their writes
+as occurring before the other thread's write (even if OpenMP flush
+directives that might be thought to eliminate this possibility are
+present).  The unsynchronized data transfers done are unidirectional,
+with one thread writing and another thread (or threads) reading, which
+will operate correctly with a store buffer as long as the ordering of
+writes and reads within one thread is preserved, which should be the
+case when suitable OpenMP flush directives are used.
+
+However, this implementation does assume that stores obey "transitive
+visibility" (in the terminology of the Intel architecture manual).
+Suppose that A, B, and C are initially zero, that Processor 1 sets A
+to 1 and then (after a flush) sets B to 1 (and does a flush), that
+Processor 2 sees (after a flush) that B is 1 and then sets C to 1 (and
+does a flush), and that Processor 3 sees (after a flush) that C is 1
+and then fetches A.  It is assumed that the value for A fetched by
+Processor 3 is guaranteed to be 1.  This property is required for the
+correctness by the mechanism the helpers implementation uses to delete
+task entries, while replacing references to the deleted task as a
+source of input by 0, as if it did not hold, it would be possible that
+the task reading the input would see the 0 reference and assume that
+all data was available to read, when it might not be.
 
 Some OpenMP 3.1 implementations of "atomic read" and "atomic write"
 are quite slow, even when it appears that no costly operations should
@@ -125,6 +147,14 @@ in the corresponding ATOMIC_... macro.  It is difficult to imagine how
 a read of a single byte can be non-atomic on any contemporary computer
 architecture, so defining ASSUME_ATOMIC_READ_CHAR at least ought to be
 safe.
+
+This helpers implementation does not rely on the flushes that are
+implied by the OpenMP 3.1 atomic read and write directives - instead,
+explicit flush operations are done wherever required - since there are
+no atomic directives in OpenMP 3.0 (and it is not clear that the gcc
+implementation of OpenMP 3.1 correctly implements such implicit
+flushes in any case), and the atomic directives for OpenMP 3.1 might
+have been disabled as described above.
 
 
 WAIT POLICY
@@ -172,7 +202,9 @@ and helper threads read task entries.
 A list of indexes of all outstanding tasks, in the order in which they
 were scheduled, is maintained in the "used" array.  This array is read
 and written only by the master thread, so no synchronization issues
-arise with it.
+arise with it.  Note that the "used" array will contain some tasks
+that have completed, but have not been noticed by the master to have
+completed.
 
 Two circular queues of task indexes are maintained, as arrays in which
 the number of entries is equal to MAX_TASKS+1, which must be a power
