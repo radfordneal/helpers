@@ -1553,7 +1553,8 @@ void helpers_do_task
 
 #     ifndef HELPERS_NO_MULTITHREADING
       {
-        if (! (m->flags & HELPERS_MASTER_ONLY))
+        if (!helpers_not_multithreading_now 
+              && ! (m->flags & HELPERS_MASTER_ONLY))
         { 
           FLUSH;
           ATOMIC_READ_CHAR (h = m->helper);
