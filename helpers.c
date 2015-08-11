@@ -364,7 +364,7 @@ static omp_lock_t suspend_lock[2];/* Locks used alternately to suspend helper */
 static int which_suspends; /* Which lock a helper sets to suspend itself */
 static int which_wakes;    /* Which lock the master unsets to wake helper */
 
-static int suspend_initialized;  /* Set to 1 when master has done initial set */
+static char suspend_initialized; /* Set to 1 when master has done initial set */
 
 #endif
 
@@ -2976,7 +2976,7 @@ void helpers_startup (int n)
 
       omp_set_lock (&suspend_lock[0]);
 
-      suspend_initialized = 1;
+      ATOMIC_WRITE_CHAR (suspend_initialized = 1);
       FLUSH;
 
       /* Run the user-supplied master procedure. */
@@ -2988,12 +2988,15 @@ void helpers_startup (int n)
     else
     {
       /* CODE EXECUTED BY THE HELPER THREADS. */
+
+      char si;
   
       /* Wait for master to set suspend lock. */
   
       do {
         FLUSH;
-      } while (!suspend_initialized);
+        ATOMIC_READ_CHAR (si = suspend_initialized);
+      } while (!si);
   
       /* Run the procedure done in each helper. */
   
