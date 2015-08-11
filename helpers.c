@@ -384,7 +384,8 @@ static mtix this_task;    /* The task this thread is doing, undefined if none,
                              except 0 in the master when it's not doing a task
                              so directly-called pipelined task procedures work*/
 
-static struct task_info *this_task_info;  /* Pointer to info for this_task */
+static struct task_info *this_task_info     /* Pointer to info for this_task, */
+                          = &task[0].info;  /*    initialized for master here */
 
 #ifndef HELPERS_NO_MULTITHREADING
 
