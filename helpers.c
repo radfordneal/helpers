@@ -1,7 +1,7 @@
 /* HELPERS - A LIBRARY SUPPORTING COMPUTATIONS USING HELPER THREADS
              C Procedures Implementing the Facility
 
-   Copyright (c) 2013, 2014, 2015 Radford M. Neal.
+   Copyright (c) 2013, 2014, 2015, 2016 Radford M. Neal.
 
    The helpers library is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -1514,14 +1514,14 @@ void helpers_do_task
 
   if ((flags & HELPERS_MERGE_IN) && helpers_tasks>0 
         && out!=null && helpers_is_being_computed(out))
-  { uh = &used[helpers_tasks-1];
+  { uh = &used[helpers_tasks];
     pipe0 = 0;
     do
-    { if (task[*uh].info.var[0]==out)
+    { if (task[*--uh].info.var[0]==out)
       { pipe0 = *uh;
         break;
       }
-    } while (--uh>=used);
+    } while (uh>used);
   }
   else
   { pipe0 = -1; /* look later */
@@ -1954,13 +1954,13 @@ out_of_merge:
   if (pipe0==-1) 
   { pipe0 = 0;
     if (out!=null && helpers_tasks>0)
-    { uh = &used[helpers_tasks-1];
+    { uh = &used[helpers_tasks];
       do
-      { if (task[*uh].info.var[0]==out)
+      { if (task[*--uh].info.var[0]==out)
         { pipe0 = *uh;
           break;
         }
-      } while (--uh>=used);
+      } while (uh>used);
     }
   }
 
@@ -1979,7 +1979,7 @@ out_of_merge:
 
   if (helpers_tasks>0)
   { 
-    uh = &used[helpers_tasks-1];
+    uh = &used[helpers_tasks];
 
     if (in1==out) info->pipe[1] = pipe0;
     if (in2==out) info->pipe[2] = pipe0;
@@ -1998,7 +1998,7 @@ out_of_merge:
     }
 	
     do
-    { mtix uhi = *uh;
+    { mtix uhi = *--uh;
       if (task[uhi].info.var[0]==in1)
       { info->pipe[1] = uhi;
         task[uhi].info.out_used = 1;
@@ -2009,31 +2009,31 @@ out_of_merge:
         task[uhi].info.out_used = 1;
         goto search_in1;
       }
-    } while (--uh>=used);
+    } while (uh>used);
 
     goto search_done;
 
   search_in1:
     do
-    { mtix uhi = *uh;
+    { mtix uhi = *--uh;
       if (task[uhi].info.var[0]==in1)
       { info->pipe[1] = uhi;
         task[uhi].info.out_used = 1;
         goto search_done;
       }
-    } while (--uh>=used);
+    } while (uh>used);
 
     goto search_done;
 
   search_in2:
     do
-    { mtix uhi = *uh;
+    { mtix uhi = *--uh;
       if (task[uhi].info.var[0]==in2)
       { info->pipe[2] = uhi;
         task[uhi].info.out_used = 1;
         goto search_done;
       }
-    } while (--uh>=used);
+    } while (uh>used);
 
   search_done: ;
   }
