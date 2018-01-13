@@ -215,7 +215,8 @@ void helpers_no_pipelining (int);    /* Disable/re-enable pipelining */
 #define helpers_not_merging 1
 #define helpers_not_merging_now 1
 
-#define helpers_startup(n)           (helpers_master())
+#define helpers_startup(n) \
+  do { helpers_master(); exit(0); } while (0)
 
 #define helpers_do_task(_flags_,_proc_,_op_,_out_,_in1_,_in2_) \
   ((_proc_)((_op_),(_out_),(_in1_),(_in2_)))
