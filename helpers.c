@@ -1,7 +1,7 @@
 /* HELPERS - A LIBRARY SUPPORTING COMPUTATIONS USING HELPER THREADS
              C Procedures Implementing the Facility
 
-   Copyright (c) 2013, 2014, 2015, 2016 Radford M. Neal.
+   Copyright (c) 2013, 2014, 2015, 2016, 2018 Radford M. Neal.
 
    The helpers library is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -74,6 +74,23 @@
 
 #ifndef SPIN_EMPTY    /* Allow value from compile option to override below's */
 #define SPIN_EMPTY 1000
+
+#endif
+
+
+/* ----------------------------  OMP SETUP ---------------------------------- */
+
+/* MODIFY LOCK STRUCTURE.  Here, my_lock_t is defined as a union of
+   the omp lock structure and eight doubles (64 bytes) for two
+   reasons.  One is to try to avoid false cache invalidation when two
+   locks are near each other.  The other is to guard against the
+   possibility that the omp_lock_t type in omp.h is not the correct
+   size, which is known to sometimes happen due to confusion between
+   versions of omp.h meant for 32-bit vs. 64-bit platforms. */
+
+#ifndef HELPERS_NO_MULTITHREADING
+
+typedef union { omp_lock_t lock; double pad[8]; } my_lock_t;
 
 #endif
 
@@ -337,7 +354,7 @@ static tix untaken[QSize], untaken_in, untaken_out;
 
 #ifndef HELPERS_NO_MULTITHREADING
 
-static omp_lock_t untaken_lock;   /* Lock to set for accessing untaken queue */
+static my_lock_t untaken_lock;  /* Lock to set for accessing untaken queue */
 
 #endif
 
@@ -348,7 +365,7 @@ static omp_lock_t untaken_lock;   /* Lock to set for accessing untaken queue */
 
 #ifndef HELPERS_NO_MULTITHREADING
 
-static omp_lock_t start_lock;  /* Lock set by thread looking for task to start*/
+static my_lock_t start_lock;   /* Lock set by thread looking for task to start*/
 
 #endif
 
@@ -359,7 +376,7 @@ static omp_lock_t start_lock;  /* Lock set by thread looking for task to start*/
 
 static hix suspended;      /* Helper that has suspended, or 0 if none */
 
-static omp_lock_t suspend_lock[2];/* Locks used alternately to suspend helper */
+static my_lock_t suspend_lock[2]; /* Locks used alternately to suspend helper */
 
 static int which_suspends; /* Which lock a helper sets to suspend itself */
 static int which_wakes;    /* Which lock the master unsets to wake helper */
@@ -1326,15 +1343,15 @@ static void do_task_in_master (int only_needed)
 
     if (!helpers_not_multithreading_now)
     { 
-      if (!omp_test_lock (&start_lock))
+      if (!omp_test_lock (&start_lock.lock))
       { 
         /* See if a helper is supended - it shouldn't be! - and wake it up
            if it is. */
 
         if (h>0)
-        { omp_set_lock (&suspend_lock[1-which_wakes]);
+        { omp_set_lock (&suspend_lock[1-which_wakes].lock);
           suspended = 0;
-          omp_unset_lock (&suspend_lock[which_wakes]);
+          omp_unset_lock (&suspend_lock[which_wakes].lock);
           which_wakes = 1-which_wakes;
           if (ENABLE_STATS) stats[h].times_woken += 1;
           helpers_printf("HELPER WAS SUSPENDED WHEN IT SHOULDN'T HAVE BEEN!\n");
@@ -1351,7 +1368,7 @@ static void do_task_in_master (int only_needed)
 #   ifndef HELPERS_NO_MULTITHREADING
 
     if (!helpers_not_multithreading_now)
-    { omp_unset_lock (&start_lock);
+    { omp_unset_lock (&start_lock.lock);
     }
 
 #   endif
@@ -1386,7 +1403,7 @@ static void helper_proc (void)
 {
   /* Set lock for becoming the helper that looks for a task to start. */
 
-  omp_set_lock (&start_lock);
+  omp_set_lock (&start_lock.lock);
 
   /* Loop, each time waiting for a non-empty untaken queue, looking for a 
      runnable task to start, doing it, and flagging its completion. */
@@ -1415,7 +1432,7 @@ static void helper_proc (void)
          with the lock set, so the master won't be putting a task in at 
          the same time. */
 
-      omp_set_lock (&untaken_lock);
+      omp_set_lock (&untaken_lock.lock);
 
       ATOMIC_READ_CHAR (u_in = untaken_in);
       if (u_in==untaken_out || helpers_not_multithreading_now)
@@ -1423,7 +1440,7 @@ static void helper_proc (void)
         will_suspend = 1;
       }
 
-      omp_unset_lock (&untaken_lock);
+      omp_unset_lock (&untaken_lock.lock);
 
       /* If we decided to suspend, do that now. */
 
@@ -1437,8 +1454,8 @@ static void helper_proc (void)
            a task in the untaken queue (when multithreading hasn't been 
            disabled). */
 
-        omp_set_lock (&suspend_lock[which_suspends]);
-        omp_unset_lock (&suspend_lock[which_suspends]);
+        omp_set_lock (&suspend_lock[which_suspends].lock);
+        omp_unset_lock (&suspend_lock[which_suspends].lock);
         which_suspends = 1-which_suspends;
 
         /* Go back to the start of the main loop, looking again at whether
@@ -1461,11 +1478,11 @@ static void helper_proc (void)
     this_task_info = &task[this_task].info;
     ATOMIC_WRITE_CHAR (this_task_info->helper = this_thread);
 
-    omp_unset_lock (&start_lock);  /* implies a flush */
+    omp_unset_lock (&start_lock.lock);  /* implies a flush */
 
     run_this_task();
 
-    omp_set_lock (&start_lock);  /* implies a flush */
+    omp_set_lock (&start_lock.lock);  /* implies a flush */
   }
 }
 
@@ -1573,7 +1590,7 @@ void helpers_do_task
              is an untaken task, but it may be set for a prolonged time if no
              untaken task can be run until some master-only task has run. */
 
-          while (!omp_test_lock (&start_lock))
+          while (!omp_test_lock (&start_lock.lock))
           { ATOMIC_READ_CHAR (h = m->helper);
             if (h!=-1)
             { goto out_of_merge;
@@ -1703,7 +1720,7 @@ void helpers_do_task
   
 #     ifndef HELPERS_NO_MULTITHREADING
       if (locked)
-      { omp_unset_lock (&start_lock);
+      { omp_unset_lock (&start_lock.lock);
       }
 #     endif
 
@@ -2099,20 +2116,20 @@ out_of_merge:
   { 
     tix new_u_in;
 
-    omp_set_lock (&untaken_lock);    /* does an implicit FLUSH */
+    omp_set_lock (&untaken_lock.lock);    /* does an implicit FLUSH */
     h = suspended;
 
     new_u_in = (untaken_in + 1) & QMask;
     ATOMIC_WRITE_CHAR (untaken_in = new_u_in);
 
-    omp_unset_lock (&untaken_lock);  /* does an implicit FLUSH */
+    omp_unset_lock (&untaken_lock.lock);  /* does an implicit FLUSH */
 
     /* Wake the suspended helper, if there is one. */
 
     if (h!=0)
-    { omp_set_lock (&suspend_lock[1-which_wakes]);
+    { omp_set_lock (&suspend_lock[1-which_wakes].lock);
       suspended = 0;
-      omp_unset_lock (&suspend_lock[which_wakes]);
+      omp_unset_lock (&suspend_lock[which_wakes].lock);
       which_wakes = 1-which_wakes;
       if (ENABLE_STATS) stats[h].times_woken += 1;
     }
@@ -2944,10 +2961,10 @@ void helpers_startup (int n)
 
   /* Initialize all locks. */
 
-  omp_init_lock (&untaken_lock);
-  omp_init_lock (&start_lock);
-  omp_init_lock (&suspend_lock[0]);
-  omp_init_lock (&suspend_lock[1]);
+  omp_init_lock (&untaken_lock.lock);
+  omp_init_lock (&start_lock.lock);
+  omp_init_lock (&suspend_lock[0].lock);
+  omp_init_lock (&suspend_lock[1].lock);
   
   which_suspends = which_wakes = 0;
   suspend_initialized = 0;
@@ -2975,7 +2992,7 @@ void helpers_startup (int n)
 
       /* Set suspend_lock[0] so helpers will be able to suspend themselves. */
 
-      omp_set_lock (&suspend_lock[0]);
+      omp_set_lock (&suspend_lock[0].lock);
 
       ATOMIC_WRITE_CHAR (suspend_initialized = 1);
       FLUSH;
