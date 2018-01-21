@@ -305,7 +305,7 @@ static union task_entry
 
     tix pipe_at_start[3];          /* Value of "pipe" when task is started */
     helpers_size_t first_amt[3];   /* First non-zero value from helpers_availN*/
-    helpers_size_t last_amt[3];    /* Last value from helpers_amount_out */
+    helpers_size_t last_amt[3];    /* Last value from helpers_availN */
 
     /* The fields below are used only when ENABLE_TRACE is 3 or more. */
 
@@ -536,6 +536,10 @@ static void trace_task_list (void)
                                               (int) info->pipe_at_start[0],
                                               (int) info->pipe_at_start[1],
                                               (int) info->pipe_at_start[2]);
+      helpers_printf("  first_amt[]: %d %d %d\n",
+                                              (int) info->first_amt[0],
+                                              (int) info->first_amt[1],
+                                              (int) info->first_amt[2]);
       helpers_printf("  last_amt[]: %d %d %d\n",
                                               (int) info->last_amt[0],
                                               (int) info->last_amt[1],
@@ -655,6 +659,14 @@ static void trace_merged
 }
 
 #endif
+
+
+/* TRACE OUTPUT FOR BEGINNING EXECUTION OF A TASK IN THE MASTER. */
+
+static void trace_begun_in_master (tix t)
+{
+  helpers_printf ("HELPERS: Task %d begun in master\n", t);
+}
 
 
 /* TRACE OUTPUT FOR COMPLETION OF A TASK. */
@@ -855,6 +867,9 @@ static void run_this_task (void)
     this_task_info->first_amt[0] = 0;
     this_task_info->first_amt[1] = 0;
     this_task_info->first_amt[2] = 0;
+    this_task_info->last_amt[0] = 0;
+    this_task_info->last_amt[1] = 0;
+    this_task_info->last_amt[2] = 0;
     if (ENABLE_TRACE>2)
     { this_task_info->start_wtime = WTIME();
     }
@@ -1154,22 +1169,13 @@ static void notice_completed_proc (void)
       { for (j = i+1; j<helpers_tasks; j++)
         { struct task_info *ninfo = &task[used[j]].info;
           if (ninfo->pipe[2]==t) 
-          { if (ENABLE_TRACE>1)
-            { ATOMIC_READ_SIZE (ninfo->last_amt[2] = info->amt_out);
-            }
-            ATOMIC_WRITE_CHAR (ninfo->pipe[2] = 0);
+          { ATOMIC_WRITE_CHAR (ninfo->pipe[2] = 0);
           }
           if (ninfo->pipe[1]==t) 
-          { if (ENABLE_TRACE>1)
-            { ATOMIC_READ_SIZE (ninfo->last_amt[1] = info->amt_out);
-            }
-            ATOMIC_WRITE_CHAR (ninfo->pipe[1] = 0);
+          { ATOMIC_WRITE_CHAR (ninfo->pipe[1] = 0);
           }
           if (ninfo->pipe[0]==t) 
-          { if (ENABLE_TRACE>1)
-            { ATOMIC_READ_SIZE (ninfo->last_amt[0] = info->amt_out);
-            }
-            ATOMIC_WRITE_CHAR (ninfo->pipe[0] = 0);
+          { ATOMIC_WRITE_CHAR (ninfo->pipe[0] = 0);
             still_being_computed = 1;
             break;
           }
@@ -1379,6 +1385,8 @@ static void do_task_in_master (int only_needed)
   }
 
   /* Do the task in the master. */
+
+  if (trace) trace_begun_in_master (this_task);
 
   this_task_info = &task[this_task].info;
   this_task_info->helper = 0;
@@ -2156,6 +2164,9 @@ direct:
     this_task_info->first_amt[0] = 0;
     this_task_info->first_amt[1] = 0;
     this_task_info->first_amt[2] = 0;
+    this_task_info->last_amt[0] = 0;
+    this_task_info->last_amt[1] = 0;
+    this_task_info->last_amt[2] = 0;
     if (ENABLE_TRACE>2)
     { this_task_info->start_wtime = WTIME();
     }
@@ -2163,7 +2174,7 @@ direct:
 
   task_to_do (op, out, in1, in2);
 
-  if (ENABLE_TRACE>2) 
+  if (ENABLE_TRACE>2)
   { this_task_info->done_wtime = WTIME();
   }
 
@@ -2573,6 +2584,7 @@ helpers_size_t helpers_avail0 (helpers_size_t mx)
 
   if (ENABLE_TRACE>1)
   { if (info->first_amt[0]==0) info->first_amt[0] = n;
+    info->last_amt[0] = n;
   }
 
   return n;
@@ -2601,6 +2613,7 @@ helpers_size_t helpers_avail1 (helpers_size_t mx)
 
   if (ENABLE_TRACE>1)
   { if (info->first_amt[1]==0) info->first_amt[1] = n;
+    info->last_amt[1] = n;
   }
 
   return n;
@@ -2629,6 +2642,7 @@ helpers_size_t helpers_avail2 (helpers_size_t mx)
 
   if (ENABLE_TRACE>1)
   { if (info->first_amt[2]==0) info->first_amt[2] = n;
+    info->last_amt[2] = n;
   }
 
   return n;
