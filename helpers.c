@@ -442,6 +442,21 @@ static double init_wtime; /* Wall clock time when helpers_startup called, set
                              and used only if ENABLE_TRACE is 3 */
 
 
+/* DEBUG OUTPUT FOR TASKS.  Saved on a per-task basis in the array
+   below, for printing when the task finishes.  The array is global,
+   since it needs to be accessible from application procedures calling
+   helpers_debug.  The helpers_task_number_internal procedure is
+   similarly needed to provide global access to this_task from an
+   application. */
+
+#if ENABLE_DEBUG
+
+char helpers_debug_output [256] [1024];
+int helpers_task_number_internal (void) { return this_task; }
+
+#endif
+
+
 /* STATISTICS ON HELPERS AND MASTER.  The tasks_done field in the zeroth entry 
    pertains to the master.  These statistics are updated and read only in the 
    master thread.  Declared but not used if ENABLE_STATS is zero. */
@@ -1189,9 +1204,19 @@ static void notice_completed_proc (void)
   
       if (ENABLE_STATS) stats[info->helper].tasks_done += 1;
   
-      /* Write trace output showing task completion, if trace enabled. */
+      /* Write trace output showing task completion, if trace enabled. 
+         Also write debug output, if any was produced. */
   
       if (trace) trace_completed(t);
+
+#     if ENABLE_DEBUG
+      { if (helpers_debug_output[t][0] != 0)
+        { helpers_printf ("HELPERS: Task %d debug output: %s\n", t,
+                           helpers_debug_output[t]);
+          helpers_debug_output[t][0] = 0;  /* just in case - set when started */
+        }
+      }
+#     endif
   
       /* Unset the being-computed flag as appropriate, if the application 
          defined the required macro. */
@@ -2092,6 +2117,11 @@ out_of_merge:
 
   if (trace) trace_started (t, flags0, task_to_do, op, out, in1, in2);
 
+# if ENABLE_DEBUG
+  { helpers_debug_output[t][0] = 0;
+  }
+# endif
+
   /* If this is a master-only task, just put it in the master_only queue. */
 
   if (flags & HELPERS_MASTER_ONLY)
@@ -2153,6 +2183,11 @@ direct:
 
   if (trace) trace_started (0, flags0, task_to_do, op, out, in1, in2);
 
+# if ENABLE_DEBUG
+  { helpers_debug_output[0][0] = 0; 
+  }
+# endif
+
   /* Code below is like in run_this_task, except this procedure's arguments
      are used without their being stored in the task info structure, and
      there's no need to set the 'done' flag. */
@@ -2179,6 +2214,16 @@ direct:
   }
 
   if (trace) trace_completed (0);
+
+# if ENABLE_DEBUG
+  { if (helpers_debug_output[0][0] != 0)
+    { helpers_printf ("HELPERS: Task %d debug output: %s\n", 0,
+                       helpers_debug_output[0]);
+      helpers_debug_output[0][0] = 0;  /* just in case, also set when started */
+    }
+  }
+# endif
+  
 
   /* Update stats on tasks done in master. */
 

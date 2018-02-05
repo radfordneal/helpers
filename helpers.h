@@ -242,6 +242,24 @@ static helpers_var_ptr helpers_var_list_null[1] = { (helpers_var_ptr) 0 };
   ((_proc_)((_op_),(_out_),(_in1_),(_in2_)))
 
 
+/* Debug output. */
+
+#if ENABLE_DEBUG
+
+#ifdef helpers_printf
+#define helpers_debug(...) helpers_printf(__VA_ARGS__)
+#else
+#include <stdio.h>
+#define helpers_debug(...) printf(__VA_ARGS__)
+#endif
+
+#else
+
+#define helpers_debug(...) do { } while (0)
+
+#endif
+
+
 #else
 
 /* NON-STUBS NEEDED WHEN HELPERS NOT DISABLED, EVEN IF NO MULTITHREADING. */
@@ -298,5 +316,25 @@ void helpers_no_merging (int);       /* Disable/re-enable task merging */
   (_c2_)? helpers_do_task((_flags_) | HELPERS_MASTER_NOW, \
                                     (_proc_),(_op_),(_out_),(_in1_),(_in2_)) : \
           ((_proc_)((_op_),(_out_),(_in1_),(_in2_))))
+
+/* Debug output. */
+
+#if ENABLE_DEBUG
+
+#include <stdio.h>
+#include <string.h>
+
+#define helpers_debug(...) do { \
+    extern char helpers_debug_output [256] [1024]; \
+    extern int helpers_task_number_internal(void); \
+    char *str = helpers_debug_output [helpers_task_number_internal()]; \
+    snprintf (str + strlen(str), 1024 - strlen(str), __VA_ARGS__); \
+  } while (0)
+
+#else
+
+#define helpers_debug(...) do { } while (0)
+
+#endif
 
 #endif
