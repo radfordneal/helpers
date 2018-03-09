@@ -18,8 +18,9 @@
 #   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
 
-COMPILE=gcc -fopenmp -g -O2                     # command for gcc/Intel
-COMPILE_NO_OPENMP=gcc -g -O2
+WARN=  # -Wall -Wno-parentheses -Wno-unused-value
+COMPILE=gcc -fopenmp -g ${WARN} -O2                     # command for gcc/Intel
+COMPILE_NO_OPENMP=gcc -g ${WARN} -O2
 
 #COMPILE=cc -xopenmp -DASSUME_ATOMIC_READ_CHAR  # command for cc/SPARC
 #COMPILE_NO_OPENMP=cc
