@@ -319,11 +319,12 @@ static union task_entry
 } task[MAX_TASKS+1];
 
 
-/* ARRAY OF TASK ENTRIES CURRENTLY USED AND UNUSED.  Read and written only 
-   by the master thread.  The "used" array always contains all the task
-   indexes from 1 to MAX_TASKS, in some order.  The first "n_used" of these
-   are currently being used, and are in the order they were scheduled.  The
-   remaining entries are unused, and in arbitrary order. */
+/* ARRAY OF TASK ENTRIES CURRENTLY USED AND UNUSED.  Read and written
+   only by the master thread.  The "used" array always contains all
+   the task indexes from 1 to MAX_TASKS, in some order.  The first
+   "helpers_tasks" of these are currently being used, and are in the
+   order they were scheduled.  The remaining entries are unused, and
+   in arbitrary order. */
 
 static mtix used[MAX_TASKS]; /* All task indexes; first helpers_tasks in use */
 int helpers_tasks = 0;       /* Number of tasks outstanding = indexes in use */
