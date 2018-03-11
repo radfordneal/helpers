@@ -2029,7 +2029,7 @@ out_of_merge:
 
   if (helpers_tasks>0)
   { 
-    uh = &used[helpers_tasks];
+    uh = &used[helpers_tasks-1];
 
     if (in1==out) info->pipe[1] = pipe0;
     if (in2==out) info->pipe[2] = pipe0;
@@ -2047,8 +2047,8 @@ out_of_merge:
     { goto search_in1;
     }
 	
-    do
-    { mtix uhi = *--uh;
+    for (;;)
+    { mtix uhi = *uh;
       if (task[uhi].info.var[0]==in1)
       { info->pipe[1] = uhi;
         task[uhi].info.out_used = 1;
@@ -2059,31 +2059,43 @@ out_of_merge:
         task[uhi].info.out_used = 1;
         goto search_in1;
       }
-    } while (uh>used);
+      if (uh==used) 
+      { break;
+      }
+      uh -= 1;
+    }
 
     goto search_done;
 
   search_in1:
-    do
-    { mtix uhi = *--uh;
+    for (;;)
+    { mtix uhi = *uh;
       if (task[uhi].info.var[0]==in1)
       { info->pipe[1] = uhi;
         task[uhi].info.out_used = 1;
         goto search_done;
       }
-    } while (uh>used);
+      if (uh==used) 
+      { break;
+      }
+      uh -= 1;
+    }
 
     goto search_done;
 
   search_in2:
-    do
-    { mtix uhi = *--uh;
+    for (;;)
+    { mtix uhi = *uh;
       if (task[uhi].info.var[0]==in2)
       { info->pipe[2] = uhi;
         task[uhi].info.out_used = 1;
         goto search_done;
       }
-    } while (uh>used);
+      if (uh==used) 
+      { break;
+      }
+      uh -= 1;
+    }
 
   search_done: ;
   }
