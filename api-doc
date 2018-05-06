@@ -598,7 +598,7 @@ program, since this implementation scheme could change in future.
 
 The task procedure producing the output should keep track of how many
 vector elements have been computed in some local variable (which
-should generally be of type helpers_size_t.  When another element has
+should generally be of type helpers_size_t).  When another element has
 been computed, a macro call of the following form should be made:
 
   HELPERS_NEXT_OUT (i)
