@@ -1563,20 +1563,20 @@ void helpers_do_task
      in "used" (needed below when merging produces a master-now task).  Set
      pipe0 to -1 if we can see no merge is possible; then we look later. */
 
-  if ((flags & HELPERS_MERGE_IN) && helpers_tasks>0 
-        && out!=null && helpers_is_being_computed(out))
-  { uh = &used[helpers_tasks];
-    pipe0 = 0;
-    do
-    { if (task[*--uh].info.var[0]==out)
-      { pipe0 = *uh;
-        break;
-      }
-    } while (uh>used);
-  }
-  else
-  { pipe0 = -1; /* look later */
-  }
+  pipe0 = -1;
+# ifdef helpers_can_merge
+    if ((flags & HELPERS_MERGE_IN) && helpers_tasks>0 
+          && out!=null && helpers_is_being_computed(out))
+    { uh = &used[helpers_tasks];
+      pipe0 = 0;
+      do
+      { if (task[*--uh].info.var[0]==out)
+        { pipe0 = *uh;
+          break;
+        }
+      } while (uh>used);
+    }
+# endif
 
   /* Perhaps try to merge the new task with the task, indexed by pipe0, that 
      pipes into its output variable.  If a merge can be done, we may need to
@@ -2236,7 +2236,6 @@ direct:
     }
   }
 # endif
-  
 
   /* Update stats on tasks done in master. */
 
