@@ -313,9 +313,10 @@ implicitly wait for the variables used or computed by the master-only
 tasks.
 
 The helpers_wait_for_all procedure takes no arguments, and waits until
-all scheduled tasks have completed.  Calling this procedure may be
-advisable before terminating the program, if some pending tasks may
-have desired side effects (such as writing data to files).
+all scheduled tasks have completed (including those on hold).  Calling
+this procedure may be advisable before terminating the program, if
+some pending tasks may have desired side effects (such as writing data
+to files).
 
 
 FAST CHECKS FOR VARIABLES BEING IN USE OR BEING COMPUTED
@@ -916,16 +917,17 @@ has been disabled.
 
 SCHEDULING TASKS THAT ARE PUT ON HOLD
 
-A task scheduled with the HELPERS_HOLD bit set in its flags will be
-created, but it will not be run, either by a helper or the master,
-until such time as the hold is released (unless the hold facility has
-been disabled, as described below).  The main use of HELPERS_HOLD is
-to prevent a task from running if there is a chance that if not run
-immediately it might be merged with a task scheduled later.
+A task (other than a master-only or master-now task) that is scheduled
+with the HELPERS_HOLD bit set in its flags will be created, but it
+will not be run, either by a helper or the master, until such time as
+the hold is released (unless the hold facility has been disabled, as
+described below).  The main use of HELPERS_HOLD is to prevent a task
+from running if there is a chance that if not run now it might be
+merged with a task scheduled later.
 
-All tasks currently on hold are released when helpers_release_holds is
-called.  The hold on a particular task will be released if any of the
-following occurs:
+All tasks currently on hold are released when helpers_release_holds or
+helpers_wait_for_all is called.  The hold on a particular task will be
+released if any of the following occurs:
 
   1) a task is scheduled that takes as one of its inputs the output 
      of the task that is on hold (though first a check is made for 
