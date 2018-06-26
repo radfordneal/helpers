@@ -428,6 +428,11 @@ int helpers_not_multithreading;  /* 1 if multithreading currently disabled */
 int helpers_not_multithreading_now; /* 1 if not multithreading right now */
 #endif
 
+#ifndef HELPERS_NO_HOLDING
+int helpers_not_holding;         /* 1 if holding is not enabled */
+int helpers_not_holding_now;     /* 1 if no holding at the moment */
+#endif
+
 static int flag_mask = ~0;       /* Mask used to clear task flags according
                                     to the settings of the above options */
 
@@ -579,6 +584,8 @@ static void trace_flags (int flags)
   }
   else if ((flags & HELPERS_MERGE_IN))  helpers_printf(" MERGE_IN");
   else if ((flags & HELPERS_MERGE_OUT)) helpers_printf(" MERGE_OUT");
+
+  if (flags & HELPERS_HOLD) helpers_printf(" HOLD");
 
   if ((flags & HELPERS_PIPE_IN012_OUT) != 0)
   { helpers_printf ((flags & HELPERS_PIPE_IN012) != 0 ? " PIPE_IN" : " PIPE");
@@ -1695,7 +1702,8 @@ void helpers_do_task
                        task_data_loc);
 
         m->flags &= ~ (HELPERS_MERGE_IN_OUT | HELPERS_PIPE_OUT);
-        m->flags |= (flags & (HELPERS_MERGE_OUT | HELPERS_PIPE_OUT));
+        m->flags |= flags & (HELPERS_MERGE_OUT | HELPERS_PIPE_OUT);
+        m->flags &= flags & HELPERS_HOLD;
 
         /* Remove and/or add merged task from/to queues.  Nothing needs to
            be done if the task merged into is master-only and the new task
@@ -2569,6 +2577,22 @@ void helpers_wait_for_all (void)
 }
 
 
+/* RELEASE ALL TASKS THAT ARE ON HOLD. */
+
+#ifndef HELPERS_NO_HOLDING
+
+void helpers_release_holds (void)
+{
+  /* currently a stub - holding not done yet */
+
+  if (trace) 
+  { helpers_printf ("HELPERS: Releasing holds\n");
+  }
+}
+
+#endif
+
+
 /* -----------------------  PIPELINING PROCEDURES  -------------------------- */
 
 /* CHECK WHETHER THERE'S ANY NEED FOR PIPELINING OUTPUT. */
@@ -2824,6 +2848,11 @@ static void set_flag_mask_now (void)
       = helpers_not_merging || helpers_are_disabled;
 # endif
 
+# ifndef HELPERS_NO_HOLDING
+    helpers_not_holding_now
+      = helpers_not_holding || helpers_are_disabled;
+# endif
+
   flag_mask = ~0;
 
   if (helpers_not_pipelining_now)
@@ -2832,6 +2861,10 @@ static void set_flag_mask_now (void)
 
   if (helpers_not_merging_now)
   { flag_mask &= ~HELPERS_MERGE_IN_OUT;
+  }
+
+  if (helpers_not_holding_now)
+  { flag_mask &= ~HELPERS_HOLD;
   }
 }
 
@@ -2911,6 +2944,26 @@ void helpers_no_multithreading (int a)
   if (trace) 
   { helpers_printf ("HELPERS: Multithreading %s\n",
                     helpers_not_multithreading ? "disabled" : "enabled");
+  }
+}
+
+#endif
+
+
+/* DISABLE / RE-ENABLE HOLDING OF TASKS. */
+
+#ifndef HELPERS_NO_HOLDING
+
+void helpers_no_holding (int a)
+{
+  helpers_not_holding = a!=0;
+
+  set_flag_mask_now();
+  FLUSH;
+
+  if (trace) 
+  { helpers_printf ("HELPERS: Holding %s\n",
+                    helpers_not_holding ? "disabled" : "enabled");
   }
 }
 

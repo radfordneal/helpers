@@ -41,6 +41,7 @@ static int rep;             /* Number of repetitions */
 static int trace;           /* Trace last repetition? */
 static int no_merge;        /* Don't merge? */
 static int extra_flags[3];  /* Extra flags for scheduling each task */
+static int call_release;    /* Call helpers_release_holds after multiply */
 
 
 /* SET OUTPUT VECTOR TO A SEQUENCE GOING FROM 0 TO 1. */
@@ -122,8 +123,14 @@ void helpers_master (void)
 
     helpers_do_task (extra_flags[0] | (no_merge ? 0 : HELPERS_MERGE_OUT),
                      seq_task, 0, A, NULL, NULL);
+
     helpers_do_task (extra_flags[1] | (no_merge ? 0 : HELPERS_MERGE_IN_OUT),
                      mul_task, 0, A, A, NULL);
+
+    if (call_release)
+    { helpers_release_holds();
+    }
+
     helpers_do_task (extra_flags[2] | (no_merge ? 0 : HELPERS_MERGE_IN),
                      add_task, 0, A, A, NULL);
 
@@ -179,6 +186,18 @@ int main (int argc, char **argv)
     else if (strcmp(argv[1],"-n3")==0)
     { extra_flags[2] |= HELPERS_MASTER_NOW;
     }
+    else if (strcmp(argv[1],"-h1")==0)
+    { extra_flags[0] |= HELPERS_HOLD;
+    }
+    else if (strcmp(argv[1],"-h2")==0)
+    { extra_flags[1] |= HELPERS_HOLD;
+    }
+    else if (strcmp(argv[1],"-h3")==0)
+    { extra_flags[2] |= HELPERS_HOLD;
+    }
+    else if (strcmp(argv[1],"-r")==0)
+    { call_release = 1;
+    }
     else
     { break;
     }
@@ -191,7 +210,7 @@ int main (int argc, char **argv)
    || sscanf(argv[2],"%d%c",&s,&junk)!=1 || s<0
    || sscanf(argv[3],"%d%c",&rep,&junk)!=1 || rep<1)
   { fprintf (stderr, 
- "Usage:  merge [ -t ] [ -d ] [ -mN ] [ -nN ] n-helpers vec-size repetitions\n"
+     "Usage:  merge [-t] [-d] [-mN] [-nN] [-hN] [-r] n-helpers vec-size repetitions\n"
     );
     exit(1);
   }

@@ -224,6 +224,11 @@ The possible options are as follows:
 
     -nN   Schedule the N'th task with the HELPERS_MASTER_NOW flag.
 
+    -hN   Schedule the N'th task with the HELPERS_HOLD flag.
+
+    -r    Call helpers_release_holds after scheduling the multiply.
+
 Note that when the number of helpers threads is greater than 0, the
 multiply and add tasks will be merged only if the multiply has not
-started yet when the add task is scheduled.
+started yet when the add task is scheduled, or if the multiply task
+was scheduled with the HELPERS_HOLD flag, and -r was not included.
