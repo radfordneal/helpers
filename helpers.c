@@ -489,17 +489,19 @@ static int runnable (mtix);
 
 /* -------------------------  TRACE PROCEDURES  ----------------------------- */
 
-/* PRINT LIST OF CURRENT TASKS.  Prints the task indexes, followed by "*" if 
-   the task is flagged as needing to complete, "+" if the task is flagged
-   as needing to start, and "." if the task is not needed, and then by "F"
-   if the task has finished, "X" if the task is executing, "R" if the task is 
-   not executing but is runnable, and nothing otherwise. 
+/* PRINT LIST OF CURRENT TASKS.  Prints the task indexes.  Each index
+   is followed by "*" if the task is flagged as needing to complete,
+   "+" if the task is flagged as needing to start, and "-" if the task
+   is not needed and not on hold, and "." if the task is on hold.
+   This is followed by "F" if the task has finished, "X" if the task
+   is executing, "R" if the task is not executing but is runnable and not
+   on hold, and nothing otherwise.
 
-   The 'used' array is also check to make sure that it contains a permutation
-   of the integers from 1 to MAX_TASKS.
+   The 'used' array is also checked to make sure that it contains a
+   permutation of the integers from 1 to MAX_TASKS.
 
-   If ENABLE_TRACE is greater than 3, extensive additional information on each 
-   task is printed. */
+   If ENABLE_TRACE is greater than 3, extensive additional information
+   on each task is printed. */
 
 static void trace_task_list (void)
 { 
@@ -526,10 +528,22 @@ static void trace_task_list (void)
   /* Print short task list. */
   
   for (i = 0; i<helpers_tasks; i++) 
-  { struct task_info *info = &task[used[i]].info;
-    helpers_printf(" %d%s%s", (int) used[i], 
-      info->needed>0 ? "*" : info->needed<0 ? "+" : ".",
-      info->done ? "F" : info->helper>=0 ? "X" : runnable(used[i]) ? "R" : "");
+  { mtix t = used[i];
+    int hold = 0;
+#   ifndef HELPERS_NO_HOLDING
+    { int j;
+      for (j = on_hold_out; j!=on_hold_in; j = (j + 1) & QMask)
+      { if (on_hold[j]==t)
+        { hold = 1;
+          break;
+        }
+      }
+    }
+#   endif
+    struct task_info *info = &task[t].info;
+    helpers_printf(" %d%s%s", (int) t, 
+      info->needed>0 ? "*" : info->needed<0 ? "+" : !hold ? "-" : ".",
+      info->done ? "F" : info->helper>=0 ? "X" : !hold&&runnable(t) ? "R" : "");
   }
 
   /* Print lots of stuff about tasks if enabled. */
@@ -1106,11 +1120,17 @@ static mtix find_untaken_runnable (int only_needed)
 }
 
 
-/* PUT A TASK IN THE UNTAKEN QUEUE, MAYBE WAKING HELPER.  The caller should
-   have already put the task id in untaken[untaken_in]. */
+/* PUT A TASK IN THE UNTAKEN QUEUE, MAYBE WAKING HELPER.  Stores the
+   task id in the untaken queue at untaken_in, and then advances
+   untaken_in, setting the lock when incrementing it (unless the
+   'locked' argument indicates it's already locked).  Then unsuspends
+   a helper if it has suspended while the lock is set.  (But don't
+   unsuspend a helper if multithreading is currently disabled.) */
 
-static void add_to_untaken (void)
+static void add_to_untaken (mtix t, int locked)
 {
+  untaken[untaken_in] = t;
+
 # ifdef HELPERS_NO_MULTITHREADING
 
   untaken_in = (untaken_in+1) & QMask;
@@ -1130,13 +1150,13 @@ static void add_to_untaken (void)
     tix new_u_in;
     hix h;
 
-    omp_set_lock (&untaken_lock.lock);    /* does an implicit FLUSH */
+    if (!locked) omp_set_lock (&untaken_lock.lock);
     h = suspended;
 
     new_u_in = (untaken_in + 1) & QMask;
     ATOMIC_WRITE_CHAR (untaken_in = new_u_in);
 
-    omp_unset_lock (&untaken_lock.lock);  /* does an implicit FLUSH */
+    if (!locked) omp_unset_lock (&untaken_lock.lock);  /* does implicit FLUSH */
 
     /* Wake the suspended helper, if there is one. */
 
@@ -1704,9 +1724,10 @@ void helpers_do_task
 
           /* We need to set start_lock to be sure that we don't merge with a
              task that has started, and so we can if necessary remove it from
-             the untaken queue.  The lock will usually be unset, since there
-             is an untaken task, but it may be set for a prolonged time if no
-             untaken task can be run until some master-only task has run. */
+             the untaken queue (will be come master-only) or put it in (was 
+             previously on hold).  The lock will usually be unset, but it may
+             be set for a prolonged time if here are untaken tasks and they
+             can't be run until some master-only tasks have run. */
 
           while (!omp_test_lock (&start_lock.lock))
           { ATOMIC_READ_CHAR (h = m->helper);
@@ -1780,26 +1801,27 @@ void helpers_do_task
                        &m->task_to_do, &m->op, &m->var[1], &m->var[2],
                        task_data_loc);
 
-        if ((m->flags & ~flags) & HELPERS_HOLD) /* old had HOLD, new does not */
-        { 
-          /* Move the old task from the on_hold queue, if it's there,
-             to the untaken queue.  Note that it can't be master-only.
-             It won't be in the on_hold queue if it was already released. */
+#       ifndef HELPERS_NO_HOLD
+          if ((m->flags & ~flags) & HELPERS_HOLD) /* old had HOLD, new doesn't*/
+          { 
+            /* Move the old task from the on_hold queue, if it's there,
+               to the untaken queue (it can't be master-only, and won't 
+               be in the on_hold queue if it was already released. */
 
-          int j;
+            int j;
 
-          for (j = on_hold_out; j!=on_hold_in; j = (j+1) & QMask)
-          { if (on_hold[j]==pipe0)
-            { on_hold[j] = on_hold[on_hold_out];
-              on_hold_out = (on_hold_out + 1) & QMask;
-              untaken[untaken_in] = pipe0;
-              add_to_untaken();
-              break;
+            for (j = on_hold_out; j!=on_hold_in; j = (j+1) & QMask)
+            { if (on_hold[j]==pipe0)
+              { on_hold[j] = on_hold[on_hold_out];
+                on_hold_out = (on_hold_out + 1) & QMask;
+                add_to_untaken (pipe0, locked);
+                break;
+              }
             }
-          }
 
-          m->flags &= ~ HELPERS_HOLD;
-        }
+            m->flags &= ~ HELPERS_HOLD;
+          }
+#       endif
 
         m->flags &= ~ (HELPERS_MERGE_IN_OUT | HELPERS_PIPE_OUT);
         m->flags |= flags & (HELPERS_MERGE_OUT | HELPERS_PIPE_OUT);
@@ -1972,6 +1994,22 @@ out_of_merge:
 
 # endif
 
+  /* Release any tasks on hold that compute inputs of the new task. */
+
+# ifndef HELPERS_NO_HOLDING
+  { int j;
+    for (j = on_hold_out; j!=on_hold_in; j = (j + 1) & QMask)
+    { mtix h = on_hold[j];
+      helpers_var_ptr hout = task[h].info.var[0];
+      if (hout!=null && (hout==in1 || hout==in2))
+      { add_to_untaken (h, 0);
+        on_hold[j] = on_hold[on_hold_out];
+        on_hold_out = (on_hold_out + 1) & QMask;
+      }
+    }
+  }
+# endif
+
   /* Set up for task - either master-now or another kind. */
 
   if (flags & HELPERS_MASTER_NOW)
@@ -2050,8 +2088,7 @@ out_of_merge:
     if (helpers_tasks==MAX_TASKS)
     { 
       if (((on_hold_in + 1) & QMask) == on_hold_out)
-      { untaken[untaken_in] = on_hold[on_hold_out];
-        add_to_untaken();
+      { add_to_untaken (on_hold[on_hold_out], 0);
         on_hold_out = (on_hold_out + 1) & QMask;
       }
 
@@ -2222,6 +2259,13 @@ out_of_merge:
     goto direct;
   }
 
+  /* Clear debug output. */
+
+# if ENABLE_DEBUG
+  { helpers_debug_output[t][0] = 0;
+  }
+# endif
+
   /* Set the in-use and being-computed flags as appropriate, if the 
      application defined the required macros.  (Note that we don't do
      this if the task is done directly in the master, since the flags
@@ -2240,53 +2284,50 @@ out_of_merge:
 
   helpers_tasks += 1;
 
-  /* Write trace output showing task scheduled, if trace enabled. */
-
-  if (trace) trace_started (t, flags0, task_to_do, op, out, in1, in2);
-
-# if ENABLE_DEBUG
-  { helpers_debug_output[t][0] = 0;
-  }
-# endif
-
   /* If this is a master-only task, just put it in the master_only queue. */
 
   if (flags & HELPERS_MASTER_ONLY)
   { master_only[master_only_in] = t;
     master_only_in = (master_only_in + 1) & QMask;
-    return;
+    goto scheduling_done;
   }
 
   /* For a task that will be on hold, just put it in the on_hold queue. */
 
-  if (flags & HELPERS_HOLD)
-  { on_hold[on_hold_in] = t;
-    on_hold_in = (on_hold_in + 1) & QMask;
-    return;
-  }
+# ifndef HELPERS_NO_HOLD
+    if (flags & HELPERS_HOLD)
+    { on_hold[on_hold_in] = t;
+      on_hold_in = (on_hold_in + 1) & QMask;
+      goto scheduling_done;
+    }
+# endif
 
   /* For a non-master-only task not on hold, put it in the untaken
      queue, where it may then be noticed by a helper looking for a
-     task to start (or eventually be done by the master thread). Set
-     the lock when incrementing untaken_in, and find out if a helper
-     has suspended while the lock is set.  (But don't unsuspend a
-     helper if multithreading is currently disabled.) */
+     task to start (or eventually be done by the master thread). */
 
-  untaken[untaken_in] = t;
-  add_to_untaken();
+  add_to_untaken (t, 0);
+
+scheduling_done:
+
+  /* Write trace output showing task scheduled, if trace enabled. */
+
+  if (trace) trace_started (t, flags0, task_to_do, op, out, in1, in2);
 
   return;
 
 direct:
 
-  /* Do this task in the master without scheduling it. */
-
-  if (trace) trace_started (0, flags0, task_to_do, op, out, in1, in2);
+  /* Clear debug output. */
 
 # if ENABLE_DEBUG
   { helpers_debug_output[0][0] = 0; 
   }
 # endif
+
+  /* Do this task in the master without scheduling it. */
+
+  if (trace) trace_started (0, flags0, task_to_do, op, out, in1, in2);
 
   /* Code below is like in run_this_task, except this procedure's arguments
      are used without their being stored in the task info structure, and
@@ -2596,8 +2637,7 @@ static void release_all (void)
 {
   if (on_hold_out!=on_hold_in)
   { do
-    { untaken[untaken_in] = on_hold[on_hold_out];
-      add_to_untaken();
+    { add_to_untaken (on_hold[on_hold_out], 0);
       on_hold_out = (on_hold_out + 1) & QMask;
     } while (on_hold_out!=on_hold_in);
   }

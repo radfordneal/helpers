@@ -1,7 +1,7 @@
 # HELPERS - A LIBRARY SUPPORTING COMPUTATIONS USING HELPER THREADS
 #           Makefile for Compiling Example Programs
 #
-# Copyright (c) 2013 Radford M. Neal.
+# Copyright (c) 2013, 2018 Radford M. Neal.
 # 
 #   The helpers library is free software; you can redistribute it and/or modify
 #   it under the terms of the GNU General Public License as published by
@@ -47,7 +47,7 @@ simple-debug:	simple.c helpers-app.h ../helpers.c ../helpers.h
 	           -o simple-debug
 
 merge:		merge.c helpers-app.h ../helpers.c ../helpers.h
-	${COMPILE} -I.. -I. -DMERGE -DENABLE_TRACE=1 merge.c ../helpers.c -lm \
+	${COMPILE} -I.. -I. -DMERGE -DENABLE_TRACE=2 merge.c ../helpers.c -lm \
 	           -o merge
 
 parex:		parex.c helpers-app.h ../helpers.c ../helpers.h
