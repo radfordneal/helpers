@@ -74,7 +74,6 @@
 
 #ifndef SPIN_EMPTY    /* Allow value from compile option to override below's */
 #define SPIN_EMPTY 1000
-
 #endif
 
 
@@ -1121,13 +1120,13 @@ static mtix find_untaken_runnable (int only_needed)
 
 
 /* PUT A TASK IN THE UNTAKEN QUEUE, MAYBE WAKING HELPER.  Stores the
-   task id in the untaken queue at untaken_in, and then advances
-   untaken_in, setting the lock when incrementing it (unless the
-   'locked' argument indicates it's already locked).  Then unsuspends
-   a helper if it has suspended while the lock is set.  (But don't
-   unsuspend a helper if multithreading is currently disabled.) */
+   task id in the untaken queue at untaken_in, and advances
+   untaken_in, setting the untaken lock when incrementing it. Then
+   unsuspends a helper if it has suspended while the lock is set.
+   (But don't unsuspend a helper if multithreading is currently
+   disabled.) */
 
-static void add_to_untaken (mtix t, int locked)
+static void add_to_untaken (mtix t)
 {
   untaken[untaken_in] = t;
 
@@ -1137,11 +1136,10 @@ static void add_to_untaken (mtix t, int locked)
 
 # else
 
-  FLUSH;
-
   if (helpers_not_multithreading_now)
   { 
     tix new_u_in;
+    FLUSH;
     new_u_in = (untaken_in + 1) & QMask;
     ATOMIC_WRITE_CHAR (untaken_in = new_u_in);
   }
@@ -1150,13 +1148,13 @@ static void add_to_untaken (mtix t, int locked)
     tix new_u_in;
     hix h;
 
-    if (!locked) omp_set_lock (&untaken_lock.lock);
+    omp_set_lock (&untaken_lock.lock);    /* does implicit FLUSH */
     h = suspended;
 
     new_u_in = (untaken_in + 1) & QMask;
     ATOMIC_WRITE_CHAR (untaken_in = new_u_in);
 
-    if (!locked) omp_unset_lock (&untaken_lock.lock);  /* does implicit FLUSH */
+    omp_unset_lock (&untaken_lock.lock);  /* does implicit FLUSH */
 
     /* Wake the suspended helper, if there is one. */
 
@@ -1722,20 +1720,22 @@ void helpers_do_task
           { goto out_of_merge;
           }
 
-          /* We need to set start_lock to be sure that we don't merge with a
-             task that has started, and so we can if necessary remove it from
-             the untaken queue (will be come master-only) or put it in (was 
-             previously on hold).  The lock will usually be unset, but it may
-             be set for a prolonged time if here are untaken tasks and they
-             can't be run until some master-only tasks have run. */
+          /* We need to set start_lock to be sure that we don't merge
+             with a task that has started, and so we can remove it
+             from the untaken queue if it will become master-only.
+             The lock will usually be unset, but it may be set for a
+             prolonged time if here are untaken tasks and they can't
+             be run until some master-only tasks have run. */
 
           while (!omp_test_lock (&start_lock.lock))
           { ATOMIC_READ_CHAR (h = m->helper);
+helpers_printf("failed to set lock\n");
             if (h!=-1)
             { goto out_of_merge;
             }
             do_task_in_master(0);
           }
+helpers_printf("set lock\n");
           locked = 1;
 
           ATOMIC_READ_CHAR (h = m->helper);
@@ -1814,7 +1814,7 @@ void helpers_do_task
             { if (on_hold[j]==pipe0)
               { on_hold[j] = on_hold[on_hold_out];
                 on_hold_out = (on_hold_out + 1) & QMask;
-                add_to_untaken (pipe0, locked);
+                add_to_untaken (pipe0);
                 break;
               }
             }
@@ -1878,12 +1878,13 @@ void helpers_do_task
         }
       }
 
-      /* Queue manipulations are all done, so release start_lock if it had 
-         been set above. */
+      /* Queue manipulations are all done, so release start_lock if it
+         is set. */
   
 #     ifndef HELPERS_NO_MULTITHREADING
       if (locked)
       { omp_unset_lock (&start_lock.lock);
+helpers_printf("unset lock\n");
       }
 #     endif
 
@@ -2002,7 +2003,7 @@ out_of_merge:
     { mtix h = on_hold[j];
       helpers_var_ptr hout = task[h].info.var[0];
       if (hout!=null && (hout==in1 || hout==in2))
-      { add_to_untaken (h, 0);
+      { add_to_untaken (h);
         on_hold[j] = on_hold[on_hold_out];
         on_hold_out = (on_hold_out + 1) & QMask;
       }
@@ -2088,7 +2089,7 @@ out_of_merge:
     if (helpers_tasks==MAX_TASKS)
     { 
       if (((on_hold_in + 1) & QMask) == on_hold_out)
-      { add_to_untaken (on_hold[on_hold_out], 0);
+      { add_to_untaken (on_hold[on_hold_out]);
         on_hold_out = (on_hold_out + 1) & QMask;
       }
 
@@ -2306,7 +2307,7 @@ out_of_merge:
      queue, where it may then be noticed by a helper looking for a
      task to start (or eventually be done by the master thread). */
 
-  add_to_untaken (t, 0);
+  add_to_untaken (t);
 
 scheduling_done:
 
@@ -2637,7 +2638,7 @@ static void release_all (void)
 {
   if (on_hold_out!=on_hold_in)
   { do
-    { add_to_untaken (on_hold[on_hold_out], 0);
+    { add_to_untaken (on_hold[on_hold_out]);
       on_hold_out = (on_hold_out + 1) & QMask;
     } while (on_hold_out!=on_hold_in);
   }
