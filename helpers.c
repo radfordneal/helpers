@@ -1139,14 +1139,15 @@ static mtix find_untaken_runnable (int only_needed)
 }
 
 
-/* PUT A TASK IN THE UNTAKEN QUEUE, MAYBE WAKING HELPER.  Stores the
-   task id in the untaken queue at untaken_in, and advances
+/* PUT A TASK IN UNTAKEN QUEUE (AND OUT OF ON_HOLD), MAYBE WAKING HELPER.
+   Stores the task id in the untaken queue at untaken_in, and advances
    untaken_in, setting the untaken lock when incrementing it. Then
    unsuspends a helper if it has suspended while the lock is set.
    (But don't unsuspend a helper if multithreading is currently
-   disabled.) */
+   disabled.) Also removes the task from the on_hold queue if it is on
+   hold. */
 
-static void add_to_untaken (mtix t)
+static void put_in_untaken (mtix t)
 {
   untaken[untaken_in] = t;
 
@@ -1187,6 +1188,20 @@ static void add_to_untaken (mtix t)
     }
   }
 
+# endif
+
+  /* Remove the task from the on_hold queue if it's there. */
+
+# ifndef HELPERS_NO_HOLDING
+  { struct task_info *info = &task[t].info;
+    if (info->is_on_hold)
+    { int j;
+      for (j = on_hold_out; on_hold[j]!=t; j = (j + 1) & !QMask) ;
+      on_hold[j] = on_hold[on_hold_out];
+      on_hold_out = (on_hold_out + 1) & QMask;
+      info->is_on_hold = 0;
+    }
+  }
 # endif
 }
 
@@ -1382,18 +1397,24 @@ static void mark_as_needed (struct task_info *info, int needed)
 {
   int p;
 
-  if (info->needed <= 0) 
+  if (info->needed <= 0 && info->needed != needed) 
   { ATOMIC_WRITE_CHAR (info->needed = needed);
   }
 
   p = info->pipe[0];
-  if (p != 0) ATOMIC_WRITE_CHAR (task[p].info.needed = -1);
+  if (p != 0) 
+  { ATOMIC_WRITE_CHAR (task[p].info.needed = -1);
+  }
 
   p = info->pipe[1];
-  if (p != 0) ATOMIC_WRITE_CHAR (task[p].info.needed = -1);
+  if (p != 0)
+  { ATOMIC_WRITE_CHAR (task[p].info.needed = -1);
+  }
 
   p = info->pipe[2];
-  if (p != 0) ATOMIC_WRITE_CHAR (task[p].info.needed = -1);
+  if (p != 0)
+  { ATOMIC_WRITE_CHAR (task[p].info.needed = -1);
+  }
 }
 
 
@@ -1829,12 +1850,7 @@ void helpers_do_task
                to the untaken queue (it can't be master-only). */
 
             if (m->is_on_hold)
-            { int j;
-              for (j = on_hold_out; on_hold[j]!=pipe0; j = (j + 1) & QMask) ;
-              on_hold[j] = on_hold[on_hold_out];
-              on_hold_out = (on_hold_out + 1) & QMask;
-              m->is_on_hold = 0;
-              add_to_untaken (pipe0);
+            { put_in_untaken (pipe0);
             }
 
             m->flags &= ~ HELPERS_HOLD;
@@ -2016,17 +2032,8 @@ out_of_merge:
   /* Release any tasks on hold that compute inputs of the new task. */
 
 # ifndef HELPERS_NO_HOLDING
-  { int j;
-    for (j = on_hold_out; j!=on_hold_in; j = (j + 1) & QMask)
-    { mtix h = on_hold[j];
-      struct task_info *info = &task[h].info;
-      helpers_var_ptr hout = info->var[0];
-      if (hout!=null && (hout==in1 || hout==in2))
-      { add_to_untaken (h);
-        on_hold[j] = on_hold[on_hold_out];
-        on_hold_out = (on_hold_out + 1) & QMask;
-        info->is_on_hold = 0;
-      }
+  { while (on_hold_out != on_hold_in)
+    { put_in_untaken (on_hold[on_hold_out]);
     }
   }
 # endif
@@ -2108,12 +2115,9 @@ out_of_merge:
 
     if (helpers_tasks==MAX_TASKS)
     { 
-#     ifndef HELPERS_NO_HOLDING
+#    ifndef HELPERS_NO_HOLDING
         if (((on_hold_in + 1) & QMask) == on_hold_out)
-        { mtix t = on_hold[on_hold_out];
-          add_to_untaken (t);
-          on_hold_out = (on_hold_out + 1) & QMask;
-          task[t].info.is_on_hold = 0;
+        { put_in_untaken (on_hold[on_hold_out]);
         }
 #     endif
 
@@ -2337,7 +2341,7 @@ out_of_merge:
      queue, where it may then be noticed by a helper looking for a
      task to start (or eventually be done by the master thread). */
 
-  add_to_untaken (t);
+  put_in_untaken (t);
 
 scheduling_done:
 
@@ -2666,13 +2670,8 @@ void helpers_wait_until_not_being_computed2
 
 static void release_all (void)
 {
-  if (on_hold_out!=on_hold_in)
-  { do
-    { mtix t = on_hold[on_hold_out];
-      add_to_untaken (on_hold[t]);
-      on_hold_out = (on_hold_out + 1) & QMask;
-      task[t].info.is_on_hold = 0;
-    } while (on_hold_out!=on_hold_in);
+  while (on_hold_out!=on_hold_in)
+  { put_in_untaken (on_hold[on_hold_out]);
   }
 }
 
