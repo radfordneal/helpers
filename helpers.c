@@ -291,8 +291,9 @@ static union task_entry
                                       look at - currently only usable for tasks
                                       that result from merging other tasks */
 
-    /* The next two fields are used only by the master. */
+    /* These fields are used only by the master. */
 
+    char is_on_hold;               /* Set to 1 if task is currently on hold */
     char out_used;                 /* Set to 1 if the output has been used as
                                       the input of a task scheduled later */
     char not_in_use_before[3];     /* When 1, indicates that in1/in2 was not
@@ -540,6 +541,11 @@ static void trace_task_list (void)
     }
 #   endif
     struct task_info *info = &task[t].info;
+    if (hold != info->is_on_hold) 
+    { helpers_printf (
+        "\nINCONSISTENCY!  on_hold (%d) not consistent with on_hold queue\n",
+        info->is_on_hold);
+    }
     helpers_printf(" %d%s%s", (int) t, 
       info->needed>0 ? "*" : info->needed<0 ? "+" : !hold ? "-" : ".",
       info->done ? "F" : info->helper>=0 ? "X" : !hold&&runnable(t) ? "R" : "");
@@ -569,6 +575,7 @@ static void trace_task_list (void)
                           var_name(info->var[0]), var_marks(info->var[0]),
                           var_name(info->var[1]), var_marks(info->var[1]),
                           var_name(info->var[2]), var_marks(info->var[2]));
+      helpers_printf("  is_on_hold: %d\n",    (int) info->is_on_hold);
       helpers_printf("  out_used: %d\n",      (int) info->out_used);
       helpers_printf("  not_in_use_before[]: %d %d %d\n", 
                                               (int) info->not_in_use_before[0],
@@ -1708,8 +1715,8 @@ void helpers_do_task
 
 #     ifndef HELPERS_NO_MULTITHREADING
       {
-        if (!helpers_not_multithreading_now 
-              && ! (m->flags & HELPERS_MASTER_ONLY))
+        if ( ! (helpers_not_multithreading_now || m->is_on_hold
+                  || (m->flags & HELPERS_MASTER_ONLY)))
         { 
           FLUSH;
           ATOMIC_READ_CHAR (h = m->helper);
@@ -1729,13 +1736,11 @@ void helpers_do_task
 
           while (!omp_test_lock (&start_lock.lock))
           { ATOMIC_READ_CHAR (h = m->helper);
-helpers_printf("failed to set lock\n");
             if (h!=-1)
             { goto out_of_merge;
             }
             do_task_in_master(0);
           }
-helpers_printf("set lock\n");
           locked = 1;
 
           ATOMIC_READ_CHAR (h = m->helper);
@@ -1820,6 +1825,7 @@ helpers_printf("set lock\n");
             }
 
             m->flags &= ~ HELPERS_HOLD;
+            m->is_on_hold = 0;
           }
 #       endif
 
@@ -2001,11 +2007,13 @@ out_of_merge:
   { int j;
     for (j = on_hold_out; j!=on_hold_in; j = (j + 1) & QMask)
     { mtix h = on_hold[j];
-      helpers_var_ptr hout = task[h].info.var[0];
+      struct task_info *info = &task[h].info;
+      helpers_var_ptr hout = info->var[0];
       if (hout!=null && (hout==in1 || hout==in2))
       { add_to_untaken (h);
         on_hold[j] = on_hold[on_hold_out];
         on_hold_out = (on_hold_out + 1) & QMask;
+        info->is_on_hold = 0;
       }
     }
   }
@@ -2089,8 +2097,10 @@ out_of_merge:
     if (helpers_tasks==MAX_TASKS)
     { 
       if (((on_hold_in + 1) & QMask) == on_hold_out)
-      { add_to_untaken (on_hold[on_hold_out]);
+      { mtix t = on_hold[on_hold_out];
+        add_to_untaken (t);
         on_hold_out = (on_hold_out + 1) & QMask;
+        task[t].info.is_on_hold = 0;
       }
 
       do 
@@ -2114,8 +2124,10 @@ out_of_merge:
     info->var[1] = in1;
     info->var[2] = in2;
 
-    /* Initialize to indicate nobody is doing this task, or needs its output. */
+    /* Initialize to indicate not on hold, but nobody is doing this task, 
+       or needs its output. */
 
+    info->is_on_hold = 0;
     info->helper = -1;
     info->needed = 0;
 
@@ -2299,6 +2311,7 @@ out_of_merge:
     if (flags & HELPERS_HOLD)
     { on_hold[on_hold_in] = t;
       on_hold_in = (on_hold_in + 1) & QMask;
+      task[t].info.is_on_hold = 1;
       goto scheduling_done;
     }
 # endif

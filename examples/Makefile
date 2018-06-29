@@ -47,7 +47,7 @@ simple-debug:	simple.c helpers-app.h ../helpers.c ../helpers.h
 	           -o simple-debug
 
 merge:		merge.c helpers-app.h ../helpers.c ../helpers.h
-	${COMPILE} -I.. -I. -DMERGE -DENABLE_TRACE=2 merge.c ../helpers.c -lm \
+	${COMPILE} -I.. -I. -DMERGE -DENABLE_TRACE=1 merge.c ../helpers.c -lm \
 	           -o merge
 
 parex:		parex.c helpers-app.h ../helpers.c ../helpers.h
