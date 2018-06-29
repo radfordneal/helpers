@@ -42,6 +42,7 @@ static int trace;           /* Trace last repetition? */
 static int no_merge;        /* Don't merge? */
 static int extra_flags[3];  /* Extra flags for scheduling each task */
 static int call_release;    /* Call helpers_release_holds after multiply */
+static int wait_for_mul;    /* Wait for result to be computed after multiply */
 
 
 /* SET OUTPUT VECTOR TO A SEQUENCE GOING FROM 0 TO 1. */
@@ -130,6 +131,9 @@ void helpers_master (void)
     if (call_release)
     { helpers_release_holds();
     }
+    if (wait_for_mul)
+    { helpers_wait_until_not_being_computed(A);
+    }
 
     helpers_do_task (extra_flags[2] | (no_merge ? 0 : HELPERS_MERGE_IN),
                      add_task, 0, A, A, NULL);
@@ -197,6 +201,9 @@ int main (int argc, char **argv)
     }
     else if (strcmp(argv[1],"-r")==0)
     { call_release = 1;
+    }
+    else if (strcmp(argv[1],"-w")==0)
+    { wait_for_mul = 1;
     }
     else
     { break;

@@ -1388,13 +1388,20 @@ static void notice_completed_proc (void)
 /* MARK AS NEEDED A TASK AND THE TASKS IT TAKES INPUT FROM.  The 'needed' 
    argument should be -1 (needs to start) or +1 (needs to finish).  Tasks 
    should be marked from most recent to oldest, so that a task marked with 
-   -1 because it provides input will not have previously been marked with +1.  
+   -1 because it provides input will not have previously been marked with +1
+   because it's output is directly needed.
+
    It's enough to mark a task that provides input as needing to start, since 
    if pipelining can't be done, it will anyway have to finish before the task 
-   taking that input can start. */
+   taking that input can start. 
+
+   If a task marked as providing input is on hold, it is moved to the
+   untaken queue.  But if the task being marked as needed is on hold,
+   the caller must handled moving it to untaken. */
 
 static void mark_as_needed (struct task_info *info, int needed)
 {
+  struct task_info *uinfo;
   int p;
 
   if (info->needed <= 0 && info->needed != needed) 
@@ -1403,17 +1410,29 @@ static void mark_as_needed (struct task_info *info, int needed)
 
   p = info->pipe[0];
   if (p != 0) 
-  { ATOMIC_WRITE_CHAR (task[p].info.needed = -1);
+  { uinfo = &task[p].info;
+    if (uinfo->needed == 0) ATOMIC_WRITE_CHAR (uinfo->needed = -1);
+#   ifndef HELPERS_NO_HOLDING
+      if (uinfo->is_on_hold) put_in_untaken(p);
+#   endif
   }
 
   p = info->pipe[1];
-  if (p != 0)
-  { ATOMIC_WRITE_CHAR (task[p].info.needed = -1);
+  if (p != 0) 
+  { uinfo = &task[p].info;
+    if (uinfo->needed == 0) ATOMIC_WRITE_CHAR (uinfo->needed = -1);
+#   ifndef HELPERS_NO_HOLDING
+      if (uinfo->is_on_hold) put_in_untaken(p);
+#   endif
   }
 
   p = info->pipe[2];
-  if (p != 0)
-  { ATOMIC_WRITE_CHAR (task[p].info.needed = -1);
+  if (p != 0) 
+  { uinfo = &task[p].info;
+    if (uinfo->needed == 0) ATOMIC_WRITE_CHAR (uinfo->needed = -1);
+#   ifndef HELPERS_NO_HOLDING
+      if (uinfo->is_on_hold) put_in_untaken(p);
+#   endif
   }
 }
 
@@ -2093,6 +2112,11 @@ out_of_merge:
 
         if (needed != 0)
         { mark_as_needed (uinfo, needed);
+#         ifndef HELPERS_NO_HOLDING
+            if (uinfo->is_on_hold)
+            { put_in_untaken(used[i]);
+            }
+#         endif
           any_needed = 1;
         }
       }
@@ -2483,6 +2507,12 @@ void helpers_start_computing_var (helpers_var_ptr v)
 
   master_only_needed = vinfo->flags & HELPERS_MASTER_ONLY;
 
+# ifndef HELPERS_NO_HOLDING
+    if (vinfo->is_on_hold)
+    { put_in_untaken (used[vindex]);
+    }
+# endif
+
   if (vindex==0) /* handle this case quickly */
   { vinfo->needed = -1;
   }
@@ -2501,7 +2531,14 @@ void helpers_start_computing_var (helpers_var_ptr v)
 
       if (needed != 0) 
       { mark_as_needed (uinfo, needed);
-        if (uinfo->flags & HELPERS_MASTER_ONLY) master_only_needed = 1;
+        if (uinfo->flags & HELPERS_MASTER_ONLY)
+        { master_only_needed = 1;
+        }
+#       ifndef HELPERS_NO_HOLDING
+          if (uinfo->is_on_hold)
+          { put_in_untaken (used[i]);
+          }
+#       endif
       }
     }
   }
@@ -2580,7 +2617,14 @@ void helpers_wait_until_not_in_use (helpers_var_ptr v)
 
     if (needed != 0) 
     { mark_as_needed (uinfo, needed);
-      if (uinfo->flags & HELPERS_MASTER_ONLY) master_only_needed = 1;
+      if (uinfo->flags & HELPERS_MASTER_ONLY)
+      { master_only_needed = 1;
+      }
+#     ifndef HELPERS_NO_HOLDING
+        if (uinfo->is_on_hold)
+        { put_in_untaken (used[i]);
+        }
+#     endif
       any_needed = 1;
     }
   }
@@ -2642,7 +2686,14 @@ void helpers_wait_until_not_being_computed2
 
     if (needed != 0) 
     { mark_as_needed (uinfo, needed);
-      if (uinfo->flags & HELPERS_MASTER_ONLY) master_only_needed = 1;
+      if (uinfo->flags & HELPERS_MASTER_ONLY)
+      { master_only_needed = 1;
+      }
+#     ifndef HELPERS_NO_HOLDING
+        if (uinfo->is_on_hold)
+        { put_in_untaken (used[i]);
+        }
+#     endif
       any_needed = 1;
     }
   }

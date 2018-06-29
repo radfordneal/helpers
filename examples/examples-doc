@@ -229,7 +229,11 @@ The possible options are as follows:
 
     -r    Call helpers_release_holds after scheduling the multiply.
 
+    -w    Call helpers_wait_until_not_being_computed for the result
+          of the multiply, immediately after scheduling it.
+
 Note that when the number of helpers threads is greater than 0, the
 multiply and add tasks will be merged only if the multiply has not
-started yet when the add task is scheduled, or if the multiply task
-was scheduled with the HELPERS_HOLD flag, and -r was not included.
+started yet when the add task is scheduled.  This will be so if the
+multiply task was scheduled with the HELPERS_HOLD flag, and neither of
+the -r and -w options were specified.
