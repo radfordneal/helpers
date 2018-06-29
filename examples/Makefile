@@ -40,10 +40,13 @@ example-m:	example.c helpers-app.h ../helpers.c ../helpers.h
 	example.c ../helpers.c -lm -o example-m
 
 simple:		simple.c helpers-app.h ../helpers.c ../helpers.h
-	${COMPILE} -I.. -I. simple.c ../helpers.c -lm -o simple
+	${COMPILE} -I.. -I. -DHELPERS_NO_HOLDING simple.c ../helpers.c -lm \
+	           -o simple
 
 simple-debug:	simple.c helpers-app.h ../helpers.c ../helpers.h
-	${COMPILE} -I.. -I. -DENABLE_DEBUG=1 simple.c ../helpers.c -lm \
+	${COMPILE} -I.. -I. \
+	           -DENABLE_DEBUG=1 -DENABLE_TRACE=1 -DHELPERS_NO_HOLDING \
+	           simple.c ../helpers.c -lm \
 	           -o simple-debug
 
 merge:		merge.c helpers-app.h ../helpers.c ../helpers.h

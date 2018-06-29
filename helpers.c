@@ -293,7 +293,9 @@ static union task_entry
 
     /* These fields are used only by the master. */
 
+#   ifndef HELPERS_NO_HOLDING
     char is_on_hold;               /* Set to 1 if task is currently on hold */
+#   endif
     char out_used;                 /* Set to 1 if the output has been used as
                                       the input of a task scheduled later */
     char not_in_use_before[3];     /* When 1, indicates that in1/in2 was not
@@ -528,8 +530,11 @@ static void trace_task_list (void)
   /* Print short task list. */
   
   for (i = 0; i<helpers_tasks; i++) 
-  { mtix t = used[i];
+  { 
+    mtix t = used[i];
+    struct task_info *info = &task[t].info;
     int hold = 0;
+
 #   ifndef HELPERS_NO_HOLDING
     { int j;
       for (j = on_hold_out; j!=on_hold_in; j = (j + 1) & QMask)
@@ -538,14 +543,14 @@ static void trace_task_list (void)
           break;
         }
       }
+      if (hold != info->is_on_hold) 
+      { helpers_printf (
+         "\nINCONSISTENCY! is_on_hold (%d) not consistent with on_hold queue\n",
+         info->is_on_hold);
+      }
     }
 #   endif
-    struct task_info *info = &task[t].info;
-    if (hold != info->is_on_hold) 
-    { helpers_printf (
-        "\nINCONSISTENCY!  on_hold (%d) not consistent with on_hold queue\n",
-        info->is_on_hold);
-    }
+
     helpers_printf(" %d%s%s", (int) t, 
       info->needed>0 ? "*" : info->needed<0 ? "+" : !hold ? "-" : ".",
       info->done ? "F" : info->helper>=0 ? "X" : !hold&&runnable(t) ? "R" : "");
@@ -575,7 +580,11 @@ static void trace_task_list (void)
                           var_name(info->var[0]), var_marks(info->var[0]),
                           var_name(info->var[1]), var_marks(info->var[1]),
                           var_name(info->var[2]), var_marks(info->var[2]));
-      helpers_printf("  is_on_hold: %d\n",    (int) info->is_on_hold);
+
+#     ifndef HELPERS_NO_HOLDING
+        helpers_printf("  is_on_hold: %d\n",  (int) info->is_on_hold);
+#     endif
+
       helpers_printf("  out_used: %d\n",      (int) info->out_used);
       helpers_printf("  not_in_use_before[]: %d %d %d\n", 
                                               (int) info->not_in_use_before[0],
@@ -843,6 +852,8 @@ static void trace_wait_until_not_in_use (int any, helpers_var_ptr v)
 
 /* TRACE OUTPUT FOR RELEASING ALL TASKS THAT ARE ON HOLD. */
 
+#ifndef HELPERS_NO_HOLDING
+
 static void trace_release_holds (void)
 { 
   if (on_hold_in==on_hold_out)
@@ -852,6 +863,8 @@ static void trace_release_holds (void)
 
   helpers_printf ("HELPERS: Releasing tasks on hold\n");
 }
+
+#endif
 
 
 /* TRACE OUTPUT FOR WAITING FOR ALL MASTER-ONLY TASKS TO COMPLETE. */
@@ -1715,8 +1728,11 @@ void helpers_do_task
 
 #     ifndef HELPERS_NO_MULTITHREADING
       {
-        if ( ! (helpers_not_multithreading_now || m->is_on_hold
-                  || (m->flags & HELPERS_MASTER_ONLY)))
+        if ( ! (helpers_not_multithreading_now
+#                 ifndef HELPERS_NO_HOLDING
+                    || m->is_on_hold
+#                 endif
+                || (m->flags & HELPERS_MASTER_ONLY)))
         { 
           FLUSH;
           ATOMIC_READ_CHAR (h = m->helper);
@@ -1806,26 +1822,22 @@ void helpers_do_task
                        &m->task_to_do, &m->op, &m->var[1], &m->var[2],
                        task_data_loc);
 
-#       ifndef HELPERS_NO_HOLD
+#       ifndef HELPERS_NO_HOLDING
           if ((m->flags & ~flags) & HELPERS_HOLD) /* old had HOLD, new doesn't*/
           { 
             /* Move the old task from the on_hold queue, if it's there,
-               to the untaken queue (it can't be master-only, and won't 
-               be in the on_hold queue if it was already released. */
+               to the untaken queue (it can't be master-only). */
 
-            int j;
-
-            for (j = on_hold_out; j!=on_hold_in; j = (j+1) & QMask)
-            { if (on_hold[j]==pipe0)
-              { on_hold[j] = on_hold[on_hold_out];
-                on_hold_out = (on_hold_out + 1) & QMask;
-                add_to_untaken (pipe0);
-                break;
-              }
+            if (m->is_on_hold)
+            { int j;
+              for (j = on_hold_out; on_hold[j]!=pipe0; j = (j + 1) & QMask) ;
+              on_hold[j] = on_hold[on_hold_out];
+              on_hold_out = (on_hold_out + 1) & QMask;
+              m->is_on_hold = 0;
+              add_to_untaken (pipe0);
             }
 
             m->flags &= ~ HELPERS_HOLD;
-            m->is_on_hold = 0;
           }
 #       endif
 
@@ -2096,12 +2108,14 @@ out_of_merge:
 
     if (helpers_tasks==MAX_TASKS)
     { 
-      if (((on_hold_in + 1) & QMask) == on_hold_out)
-      { mtix t = on_hold[on_hold_out];
-        add_to_untaken (t);
-        on_hold_out = (on_hold_out + 1) & QMask;
-        task[t].info.is_on_hold = 0;
-      }
+#     ifndef HELPERS_NO_HOLDING
+        if (((on_hold_in + 1) & QMask) == on_hold_out)
+        { mtix t = on_hold[on_hold_out];
+          add_to_untaken (t);
+          on_hold_out = (on_hold_out + 1) & QMask;
+          task[t].info.is_on_hold = 0;
+        }
+#     endif
 
       do 
       { do_task_in_master(0);
@@ -2127,7 +2141,10 @@ out_of_merge:
     /* Initialize to indicate not on hold, but nobody is doing this task, 
        or needs its output. */
 
-    info->is_on_hold = 0;
+#   ifndef HELPERS_NO_HOLDING
+      info->is_on_hold = 0;
+#   endif
+
     info->helper = -1;
     info->needed = 0;
 
@@ -2307,7 +2324,7 @@ out_of_merge:
 
   /* For a task that will be on hold, just put it in the on_hold queue. */
 
-# ifndef HELPERS_NO_HOLD
+# ifndef HELPERS_NO_HOLDING
     if (flags & HELPERS_HOLD)
     { on_hold[on_hold_in] = t;
       on_hold_in = (on_hold_in + 1) & QMask;
@@ -2651,8 +2668,10 @@ static void release_all (void)
 {
   if (on_hold_out!=on_hold_in)
   { do
-    { add_to_untaken (on_hold[on_hold_out]);
+    { mtix t = on_hold[on_hold_out];
+      add_to_untaken (on_hold[t]);
       on_hold_out = (on_hold_out + 1) & QMask;
+      task[t].info.is_on_hold = 0;
     } while (on_hold_out!=on_hold_in);
   }
 }

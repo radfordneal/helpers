@@ -165,7 +165,8 @@ next repetitions.
 A version of the example program called "simple" is also provided,
 which is the same as "example" except that the only option that it
 implements is -t.  It is a more easily-read illustration of basic use
-of the helpers facility, and also illustrates helpers_debug.
+of the helpers facility, and also illustrates helpers_debug.  It's
+also compiled with -DHELPERS_NO_HOLDING, just to test that that works.
 
 The program "parex" is a modified version of "example" that allows the
 sin and cos computations (steps (2) and (3) above) to be done with
