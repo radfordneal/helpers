@@ -1937,7 +1937,6 @@ void helpers_do_task
 #     ifndef HELPERS_NO_MULTITHREADING
       if (locked)
       { omp_unset_lock (&start_lock.lock);
-helpers_printf("unset lock\n");
       }
 #     endif
 
