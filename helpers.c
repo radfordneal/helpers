@@ -489,6 +489,140 @@ static void do_task_in_master (int);
 static int runnable (mtix);
 
 
+/* ------------------------  CONSISTENCY CHECK ------------------------------ */
+
+/* CHECK CONSISTENCY OF DATA STRUCTURES.  Prints a message and calls abort if 
+   an error is found.  Disabled unless HELPERS_DEBUG is defined.  Meant only
+   for debugging - has seriously bad performance impact. */
+
+#ifndef HELPERS_DEBUG
+
+#define check_consistency() ((void) 0)
+
+#else
+
+static void check_consistency (void)
+{
+  int in_use[MAX_TASKS+1];
+  int in_queue[MAX_TASKS+1];
+  mtix t;
+  int j;
+
+  for (t = 0; t<MAX_TASKS; t++)
+  { in_use[t] = in_queue[t] = 0;
+  }
+
+  for (j = 0; j<helpers_tasks; j++)
+  { t = used[j];
+    if (t<=0 || t>MAX_TASKS)
+    { helpers_printf("INVALID!  used[%d] = %d out of range\n",j,t);
+      abort();
+    }
+    if (in_use[t])
+    { helpers_printf("INVALID!  used[%d] = %d already in use\n",j,t);
+      abort();
+    }
+    in_use[t] = 1;
+  }
+
+  if (untaken_in>MAX_TASKS || untaken_out>MAX_TASKS) 
+  { helpers_printf("INVALID!  Bad untaken_in/out: %d/%d\n",
+                   untaken_in, untaken_out);
+    abort();
+  }
+
+  for (j = untaken_out; j!=untaken_in; j = (j + 1) & QMask)
+  { t = untaken[j];
+    if (t<=0 || t>MAX_TASKS)
+    { helpers_printf("INVALID!  untaken[%d] = %d out of range\n",j,t);
+      abort();
+    }
+    if (!in_use[t])
+    { helpers_printf("INVALID!  untaken[%d] = %d not in use\n",j,t);
+      abort();
+    }
+    if (in_queue[t])
+    { helpers_printf("INVALID!  untaken[%d] = %d queued two places\n",j,t);
+      abort();
+    }
+    in_queue[t] = 1;
+  }
+
+  if (master_only_in>MAX_TASKS || master_only_out>MAX_TASKS) 
+  { helpers_printf("INVALID!  Bad master_only_in/out: %d/%d\n",
+                   master_only_in, master_only_out);
+    abort();
+  }
+
+  for (j = master_only_out; j!=master_only_in; j = (j + 1) & QMask)
+  { t = master_only[j];
+    if (t<=0 || t>MAX_TASKS)
+    { helpers_printf("INVALID!  master_only[%d] = %d out of range\n",j,t);
+      abort();
+    }
+    if (!in_use[t])
+    { helpers_printf("INVALID!  master_only[%d] = %d not in use\n",j,t);
+      abort();
+    }
+    if (in_queue[t])
+    { helpers_printf("INVALID!  master_only[%d] = %d queued two places\n",j,t);
+      abort();
+    }
+    in_queue[t] = 1;
+  }
+
+# ifndef HELPERS_NO_HOLDING
+
+  if (on_hold_in>MAX_TASKS || on_hold_out>MAX_TASKS) 
+  { helpers_printf("INVALID!  Bad on_hold_in/out: %d/%d\n",
+                   on_hold_in, on_hold_out);
+    abort();
+  }
+
+  int n_on_hold = 0;
+
+  for (j = on_hold_out; j!=on_hold_in; j = (j + 1) & QMask)
+  { t = on_hold[j];
+    if (t<=0 || t>MAX_TASKS)
+    { helpers_printf("INVALID!  on_hold[%d] = %d out of range\n",j,t);
+      abort();
+    }
+    if (!in_use[t])
+    { helpers_printf("INVALID!  on_hold[%d] = %d not in use\n",j,t);
+      abort();
+    }
+    if (!task[t].info.is_on_hold)
+    { helpers_printf("INVALID!  on_hold[%d] = %d has false is_on_hold\n",j,t);
+      abort();
+    }
+    if (in_queue[t])
+    { helpers_printf("INVALID!  on_hold[%d] = %d queued two places\n",j,t);
+      abort();
+    }
+    in_queue[t] = 1;
+    n_on_hold += 1;
+  }
+
+  int n_on_hold2 = 0;
+
+  for (j = 0; j<helpers_tasks; j++)
+  { t = used[j];
+    if (task[t].info.is_on_hold)
+    { n_on_hold2 += 1;
+    }
+  }
+
+  if (n_on_hold!=n_on_hold2)
+  { helpers_printf("INVALID!  inconsistent on_hold counts (%d %d)\n",
+                   n_on_hold, n_on_hold2);
+  }
+
+# endif
+}
+
+#endif 
+
+
 /* -------------------------  TRACE PROCEDURES  ----------------------------- */
 
 /* PRINT LIST OF CURRENT TASKS.  Prints the task indexes.  Each index
@@ -1692,6 +1826,8 @@ void helpers_do_task
   int i;
   hix h;
 
+  check_consistency();  /* only enabled for debugging */
+
   /* If helpers are disabled, do the task directly.  There's no possible need 
      to wait.  Note that task[0].info will be set to all zeros (either from 
      initialization or clearing when helpers were disabled). */
@@ -2040,6 +2176,8 @@ void helpers_do_task
         { trace_merged (pipe0, flags0, task_to_do, op, out, in1, in2);
         }
 
+        check_consistency();  /* only enabled for debugging */
+
         return;
       }
     }
@@ -2380,9 +2518,13 @@ scheduling_done:
 
   if (trace) trace_started (t, flags0, task_to_do, op, out, in1, in2);
 
+  check_consistency();  /* only enabled for debugging */
+
   return;
 
 direct:
+
+  /* Do this task in the master without scheduling it. */
 
   /* Clear debug output. */
 
@@ -2391,9 +2533,9 @@ direct:
   }
 # endif
 
-  /* Do this task in the master without scheduling it. */
-
   if (trace) trace_started (0, flags0, task_to_do, op, out, in1, in2);
+
+  check_consistency();  /* only enabled for debugging */
 
   /* Code below is like in run_this_task, except this procedure's arguments
      are used without their being stored in the task info structure, and
@@ -2443,6 +2585,8 @@ direct:
   if (ENABLE_TRACE>1)
   { info->last_amt[0] = info->last_amt[1] = info->last_amt[2] = 0;
   }
+
+  check_consistency();  /* only enabled for debugging */
 }
 
 
@@ -2464,6 +2608,8 @@ void helpers_start_computing_var (helpers_var_ptr v)
   char d;
   hix h;
   int i;
+
+  check_consistency();  /* only enabled for debugging */
 
   /* Quick exit if no processes scheduled (includes when no helper threads). */
 
@@ -2587,6 +2733,8 @@ void helpers_wait_until_not_in_use (helpers_var_ptr v)
 {
   int any_needed, master_only_needed, i;
 
+  check_consistency();  /* only enabled for debugging */
+
   /* Quick check for variable being one we needn't wait for. */
 
   if (v==null || !helpers_is_in_use(v))
@@ -2663,6 +2811,8 @@ void helpers_wait_until_not_being_computed2
 {
   int any_needed, master_only_needed, i;
 
+  check_consistency();  /* only enabled for debugging */
+
   /* Quick check for there being no uncompleted tasks. */
 
   notice_completed();
@@ -2737,6 +2887,8 @@ void helpers_release_holds (void)
 {
   if (trace) trace_release_holds();
 
+  check_consistency();  /* only enabled for debugging */
+
   release_all();
 }
 
@@ -2751,6 +2903,8 @@ void helpers_wait_for_all_master_only (void)
   int i;
 
   if (trace) trace_wait_for_all_master_only();
+
+  check_consistency();  /* only enabled for debugging */
 
   /* Return if there are no uncompleted master-only tasks. */
 
@@ -2790,6 +2944,8 @@ void helpers_wait_for_all (void)
   int i;
 
   if (trace) trace_wait_for_all();
+
+  check_consistency();  /* only enabled for debugging */
 
   /* Quick check for no uncompleted tasks. */
 
@@ -3038,6 +3194,8 @@ double *helpers_task_data (void)
 helpers_var_ptr *helpers_var_list (int out_only)
 {
   int i, j;
+
+  check_consistency();  /* only enabled for debugging */
 
   notice_completed();
 
