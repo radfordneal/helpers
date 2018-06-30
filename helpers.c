@@ -42,7 +42,7 @@
 #define MAX_TASKS 255
 #endif
 
-#if MAX_TASKS < 1 || MAX_TASK > 255 || (MAX_TASKS & (MAX_TASKS+1)) != 0
+#if MAX_TASKS < 1 || MAX_TASKS > 255 || (MAX_TASKS & (MAX_TASKS+1)) != 0
 #error Invalid value for MAX_TASKS
 #endif
 
