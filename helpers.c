@@ -495,6 +495,8 @@ static int runnable (mtix);
    an error is found.  Disabled unless HELPERS_DEBUG is defined.  Meant only
    for debugging - has seriously bad performance impact. */
 
+static int done_setup = 0;   /* Set to 1 after data structures initialized */
+
 #ifndef HELPERS_DEBUG
 
 #define check_consistency() ((void) 0)
@@ -503,14 +505,35 @@ static int runnable (mtix);
 
 static void check_consistency (void)
 {
+  int listed[MAX_TASKS+1];
   int in_use[MAX_TASKS+1];
   int in_queue[MAX_TASKS+1];
   mtix t;
   int j;
 
-  for (t = 0; t<MAX_TASKS; t++)
-  { in_use[t] = in_queue[t] = 0;
+  if (!done_setup) 
+  { return;
   }
+
+  for (t = 0; t<=MAX_TASKS; t++)
+  { listed[t] = in_use[t] = in_queue[t] = 0;
+  }
+
+  /* Check that all task ids occur once in 'used'. */
+
+  for (j = 0; j<MAX_TASKS; j++)
+  { t = used[j];
+    listed[t] += 1;
+  }
+
+  for (t = 1; t<=MAX_TASKS; t++)
+  { if (listed[t]!=1)
+    { helpers_printf("INVALID!  id %d occurs %d times in used\n", t, listed[t]);
+      abort();
+    }
+  }
+
+  /* Check list of current tasks in 'used'. */
 
   for (j = 0; j<helpers_tasks; j++)
   { t = used[j];
@@ -525,28 +548,36 @@ static void check_consistency (void)
     in_use[t] = 1;
   }
 
-  if (untaken_in>MAX_TASKS || untaken_out>MAX_TASKS) 
-  { helpers_printf("INVALID!  Bad untaken_in/out: %d/%d\n",
-                   untaken_in, untaken_out);
+  /* Check contents of 'untaken' queue.  Note that tasks may be being
+     taken out concurrently by a helper. */
+
+  tix u_in, u_out;
+  u_in = untaken_in;
+  ATOMIC_READ_CHAR (u_out = untaken_out);
+
+  if (u_in>MAX_TASKS || u_out>MAX_TASKS) 
+  { helpers_printf("INVALID!  Bad untaken_in/out: %d/%d\n", u_in, u_out);
     abort();
   }
 
-  for (j = untaken_out; j!=untaken_in; j = (j + 1) & QMask)
+  for (j = u_out; j!=u_in; j = (j + 1) & QMask)
   { t = untaken[j];
     if (t<=0 || t>MAX_TASKS)
-    { helpers_printf("INVALID!  untaken[%d] = %d out of range\n",j,t);
+    { helpers_printf("INVALID!  untaken[%d] = %d out of range (%d %d)\n",
+                      j, t, u_out, u_in);
       abort();
     }
     if (!in_use[t])
-    { helpers_printf("INVALID!  untaken[%d] = %d not in use\n",j,t);
+    { helpers_printf("INVALID!  untaken[%d] = %d not in use (%d %d)\n",
+                      j, t, u_out, u_in);
       abort();
     }
-    if (in_queue[t])
-    { helpers_printf("INVALID!  untaken[%d] = %d queued two places\n",j,t);
-      abort();
-    }
+    /* Can't check for being queued twice here because a helper may be
+       manipulating the queue. */
     in_queue[t] = 1;
   }
+
+  /* Check contents of 'master_only' queue. */
 
   if (master_only_in>MAX_TASKS || master_only_out>MAX_TASKS) 
   { helpers_printf("INVALID!  Bad master_only_in/out: %d/%d\n",
@@ -570,6 +601,8 @@ static void check_consistency (void)
     }
     in_queue[t] = 1;
   }
+
+  /* Check contents of 'on_hold' queue. */
 
 # ifndef HELPERS_NO_HOLDING
 
@@ -602,6 +635,8 @@ static void check_consistency (void)
     in_queue[t] = 1;
     n_on_hold += 1;
   }
+
+  /* Further check of consistency of is_on_hold flags. */
 
   int n_on_hold2 = 0;
 
@@ -3474,6 +3509,8 @@ void helpers_startup (int n)
   
   which_suspends = which_wakes = 0;
   suspend_initialized = 0;
+
+  done_setup = 1;  /* check_consistency can now look at things */
 
   #pragma omp parallel num_threads(helpers_num+1)
   {
