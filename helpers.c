@@ -1266,20 +1266,20 @@ static mtix find_untaken_runnable (int only_needed)
 
   untaken[f] = untaken[untaken_out];
   new_u_out = (untaken_out + 1) & QMask;
+  FLUSH;  /* so new value of untaken[f] is seen; maybe unneeded given lock */
   ATOMIC_WRITE_CHAR (untaken_out = new_u_out);
-  FLUSH;
 
   return t;
 }
 
 
 /* PUT A TASK IN UNTAKEN QUEUE (AND OUT OF ON_HOLD), MAYBE WAKING HELPER.
-   Stores the task id in the untaken queue at untaken_in, and advances
-   untaken_in, setting the untaken lock when incrementing it. Then
-   unsuspends a helper if it has suspended while the lock is set.
-   (But don't unsuspend a helper if multithreading is currently
-   disabled.) Also removes the task from the on_hold queue if it is on
-   hold. */
+   Must be called only from the master.  Stores the task id in the
+   untaken queue at untaken_in, and advances untaken_in, setting the
+   untaken lock when incrementing it. Then unsuspends a helper if it
+   has suspended while the lock is set.  (But don't unsuspend a helper
+   if multithreading is currently disabled.) Also removes the task
+   from the on_hold queue if it is on hold. */
 
 static void put_in_untaken (mtix t)
 {
