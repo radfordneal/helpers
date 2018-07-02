@@ -553,7 +553,8 @@ static void check_consistency (void)
      check for a task being queued twice here because that can happen
      momentarily as a helper manipulates the queue.  Also, other checks 
      depend on reads from 'untaken' being atomic even though this
-     isn't technically ensured by the code here and elsewhere. */
+     isn't technically ensured by the code here and elsewhere (but not
+     likely to be a problem in practice). */
 
   tix u_in, u_out;
   u_in = untaken_in;
@@ -2252,7 +2253,9 @@ void helpers_do_task
       return;
     }
 
-no_merge:
+  no_merge:
+
+    check_consistency();  /* only enabled for debugging */
 
 # endif
 
@@ -2270,6 +2273,8 @@ no_merge:
     }
   }
 # endif
+
+  check_consistency();  /* only enabled for debugging */
 
   /* Set up for task - either master-now or another kind. */
 
@@ -2353,11 +2358,11 @@ no_merge:
 
     if (helpers_tasks==MAX_TASKS)
     { 
-#    ifndef HELPERS_NO_HOLDING
+#     ifndef HELPERS_NO_HOLDING
         if (((on_hold_in + 1) & QMask) == on_hold_out)
         { put_in_untaken (on_hold[on_hold_out]);
         }
-#   endif
+#     endif
 
       do 
       { do_task_in_master(0);
