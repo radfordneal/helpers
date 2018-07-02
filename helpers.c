@@ -1265,6 +1265,9 @@ static mtix find_untaken_runnable (int only_needed)
 
   for (i = untaken_out; i!=u_in; i = (i + 1) & QMask) 
   { t = untaken[i];
+#   ifdef HELPERS_DEBUG
+      if (t<1 || t>MAX_TASKS) abort();
+#   endif
     ATOMIC_READ_CHAR (n = task[t].info.needed);
     if (n)
     { r = runnable(t);
@@ -1321,6 +1324,12 @@ static mtix find_untaken_runnable (int only_needed)
 
 static void put_in_untaken (mtix t)
 {
+  check_consistency();  /* only enabled for debugging */
+
+# ifdef HELPERS_DEBUG
+    if (t<1 || t>MAX_TASKS) abort();
+# endif
+
   untaken[untaken_in] = t;
 
 # ifdef HELPERS_NO_MULTITHREADING
@@ -1375,6 +1384,8 @@ static void put_in_untaken (mtix t)
     }
   }
 # endif
+
+  check_consistency();  /* only enabled for debugging */
 }
 
 
@@ -1968,22 +1979,27 @@ void helpers_do_task
       { 
         /* If task we're trying to merge with is not master-only or on hold,
            set the start lock, in order to check for sure whether the merged
-           task has already been started in a helper, and so possible queue 
-           manipulations can be done later. */
+           task has already been started in a helper.  Also set start_lock
+           anyway if the untaken queue may be manipulated later. */
 
         if (! (m->flags & HELPERS_MASTER_ONLY)
 #          ifndef HELPERS_NO_HOLDING
-             && !m->is_on_hold 
+             && (!m->is_on_hold || !(flags & HELPERS_HOLD)
+                       && !(flags & (HELPERS_MASTER_ONLY | HELPERS_MASTER_NOW)))
 #          endif
            )
         { 
-          FLUSH;
-          ATOMIC_READ_CHAR (h = m->helper);
+#         ifndef HELPERS_NO_HOLDING
+          if (!m->is_on_hold)
+#         endif
+          { FLUSH;
+            ATOMIC_READ_CHAR (h = m->helper);
 
-          /* Don't merge if the task to merge with has started to run. */
+            /* Don't merge if the task to merge with has started to run. */
 
-          if (h!=-1)
-          { goto no_merge;
+            if (h!=-1)
+            { goto no_merge;
+            }
           }
 
           /* This lock will usually be unset, but it may be set for a
@@ -1999,9 +2015,13 @@ void helpers_do_task
           }
           locked = 1;
 
-          ATOMIC_READ_CHAR (h = m->helper);
-          if (h!=-1) 
-          { merge = 0;
+#         ifndef HELPERS_NO_HOLDING
+          if (!m->is_on_hold)
+#         endif
+          { ATOMIC_READ_CHAR (h = m->helper);
+            if (h!=-1) 
+            { merge = 0;
+            }
           }
         }
       }
@@ -2064,10 +2084,17 @@ void helpers_do_task
                              task_data_loc);
 
 #     ifndef HELPERS_NO_HOLDING
-        if ((m->flags & ~flags) & HELPERS_HOLD) /* old had HOLD, new doesn't*/
+        if (((m->flags & ~flags) & HELPERS_HOLD)  /* old had HOLD, new doesn't*/
+              && !(flags & (HELPERS_MASTER_ONLY | HELPERS_MASTER_NOW)))
         { 
           /* Move the old task from the on_hold queue, if it's there,
-             to the untaken queue (it can't be master-only). */
+             to the untaken queue (it can't be master-only).  Need for
+             start_lock to be set at this point, since otherwise the
+             task just put in the untaken queue could start running. */
+
+#         ifdef HELPERS_DEBUG
+            if (!locked && !helpers_no_multithreading) abort();
+#         endif
 
           if (m->is_on_hold)
           { put_in_untaken (pipe0);
@@ -2131,10 +2158,16 @@ void helpers_do_task
               if (!locked && !helpers_no_multithreading) abort();
 #           endif
 
-            for (j = untaken_out; untaken[j]!=pipe0; j = (j + 1) & QMask)
+            for (j = untaken_out; ; j = (j + 1) & QMask)
             { if (j==untaken_in)
               { helpers_printf("TASK TO MERGE INTO IS NOT IN UNTAKEN QUEUE!\n");
                 exit(1);
+              }
+#             ifdef HELPERS_DEBUG
+                if (untaken[j]<1 || untaken[j]>MAX_TASKS) abort();
+#             endif
+              if (untaken[j]==pipe0)
+              { break;
               }
             }
 
@@ -2266,9 +2299,9 @@ void helpers_do_task
 
   no_merge:
 
-    check_consistency();  /* only enabled for debugging */
-
 # endif
+
+  check_consistency();  /* only enabled for debugging */
 
   /* Release any tasks on hold that compute inputs of the new task. */
 
