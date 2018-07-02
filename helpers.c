@@ -1979,13 +1979,12 @@ void helpers_do_task
       { 
         /* If task we're trying to merge with is not master-only or on hold,
            set the start lock, in order to check for sure whether the merged
-           task has already been started in a helper.  Also set start_lock
-           anyway if the untaken queue may be manipulated later. */
+           task has already been started in a helper.  This also allows the
+           untaken queue may be manipulated later, until the lock is unset. */
 
         if (! (m->flags & HELPERS_MASTER_ONLY)
 #          ifndef HELPERS_NO_HOLDING
-             && (!m->is_on_hold || !(flags & HELPERS_HOLD)
-                       && !(flags & (HELPERS_MASTER_ONLY | HELPERS_MASTER_NOW)))
+             && !m->is_on_hold
 #          endif
            )
         { 
@@ -2083,27 +2082,6 @@ void helpers_do_task
                              &m->task_to_do, &m->op, &m->var[1], &m->var[2],
                              task_data_loc);
 
-#     ifndef HELPERS_NO_HOLDING
-        if (((m->flags & ~flags) & HELPERS_HOLD)  /* old had HOLD, new doesn't*/
-              && !(flags & (HELPERS_MASTER_ONLY | HELPERS_MASTER_NOW)))
-        { 
-          /* Move the old task from the on_hold queue, if it's there,
-             to the untaken queue (it can't be master-only).  Need for
-             start_lock to be set at this point, since otherwise the
-             task just put in the untaken queue could start running. */
-
-#         ifdef HELPERS_DEBUG
-            if (!locked && !helpers_no_multithreading) abort();
-#         endif
-
-          if (m->is_on_hold)
-          { put_in_untaken (pipe0);
-          }
-
-          m->flags &= ~ HELPERS_HOLD;
-        }
-#     endif
-
       m->flags &= ~ (HELPERS_MERGE_IN_OUT | HELPERS_PIPE_OUT);
       m->flags |= flags & (HELPERS_MERGE_OUT | HELPERS_PIPE_OUT);
       m->flags &= ~ (flags_to_clear & (HELPERS_MERGE_OUT | HELPERS_HOLD 
@@ -2181,6 +2159,21 @@ void helpers_do_task
 
             master_only[master_only_in] = pipe0;
             master_only_in = (master_only_in + 1) & QMask;
+          }
+        }
+        else /* neither task is master-only or master-now */
+        {
+          if ((m->flags & ~flags) & HELPERS_HOLD) /* old had HOLD, new doesn't*/
+          {
+            /* Move the old task from the on_hold queue, if it's there, 
+               to the untaken queue.  Doesn't require start_lock to be
+               set (but note the task may start running immediately). */
+
+            if (m->is_on_hold)
+            { put_in_untaken (pipe0);
+            }
+
+            m->flags &= ~ HELPERS_HOLD;
           }
         }
       }
