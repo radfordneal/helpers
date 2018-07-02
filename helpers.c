@@ -2090,7 +2090,7 @@ void helpers_do_task
       { if (flags & HELPERS_MASTER_NOW)
         { 
           /* Remove the task to merge into from the master-only queue.
-             It must be at the head of the queue (checked above). */
+             It must be the next in the queue (checked above). */
 
           master_only_out = (master_only_out + 1) & QMask;
           m->flags &= ~ HELPERS_MASTER_ONLY;
@@ -2099,11 +2099,11 @@ void helpers_do_task
       }
       else if (flags & (HELPERS_MASTER_ONLY | HELPERS_MASTER_NOW))
       { 
-        /* Remove the task to merge into from the untaken or on_hold queue.
-           Note that start_lock should alread be set if it's in untaken. */
+        /* Remove the task to merge into from the untaken or on_hold queue. */
 
         int j;
 
+#       ifndef HELPERS_NO_HOLDING
         if (m->is_on_hold)
         { for (j = on_hold_out; on_hold[j]!=pipe0; j = (j + 1) & QMask)
           { if (j==on_hold_in)
@@ -2113,14 +2113,21 @@ void helpers_do_task
           }
           on_hold[j] = on_hold[on_hold_out];
           on_hold_out = (on_hold_out + 1) & QMask;
+          m->is_on_hold = 0;
         }
         else
-        { for (j = untaken_out; untaken[j]!=pipe0; j = (j + 1) & QMask)
+#       endif
+        { 
+          /* Task being merged into must be in the 'untaken' queue.  Note that
+             start_lock should already be set (unless not multithreading). */
+
+          for (j = untaken_out; untaken[j]!=pipe0; j = (j + 1) & QMask)
           { if (j==untaken_in)
             { helpers_printf("TASK TO MERGE INTO IS NOT IN UNTAKEN QUEUE!\n");
               exit(1);
             }
           }
+
           untaken[j] = untaken[untaken_out];
           untaken_out = (untaken_out + 1) & QMask;
         }
