@@ -549,7 +549,11 @@ static void check_consistency (void)
   }
 
   /* Check contents of 'untaken' queue.  Note that tasks may be being
-     taken out concurrently by a helper. */
+     taken out concurrently by a helper.  Because of this, we can't
+     check for a task being queued twice here because that can happen
+     momentarily as a helper manipulates the queue.  Also, other checks 
+     depend on reads from 'untaken' being atomic even though this
+     isn't technically ensured by the code here and elsewhere. */
 
   tix u_in, u_out;
   u_in = untaken_in;
@@ -572,8 +576,6 @@ static void check_consistency (void)
                       j, t, u_out, u_in);
       abort();
     }
-    /* Can't check for being queued twice here because a helper may be
-       manipulating the queue. */
     in_queue[t] = 1;
   }
 
