@@ -1402,8 +1402,8 @@ vectors are defined:
 The following symbols may be defined in helpers-app.h or via compiler
 options when building the helpers facility:
 
-  HELPERS_MAX       maximum number of helper thrreads, defaults to 127
-  HELPERS_MAX_TAKS  maximum number of scheduled tasks, defaults to 255
+  HELPERS_MAX        maximum number of helper thrreads, defaults to 127
+  HELPERS_MAX_TASKS  maximum number of scheduled tasks, defaults to 255
 
   HELPERS_DISABLED
   HELPERS_NO_MULTITHREADING
