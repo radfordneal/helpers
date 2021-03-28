@@ -1330,7 +1330,7 @@ helpers facility):
   helpers_is_being_computed         int       helpers_var_ptr
 
   helpers_var_name                  char *    helpers_var_ptr
-  helpers_task_name                 char *    helpers_var_ptr
+  helpers_task_name                 char *    helpers_task_proc
 
   helpers_helper_init               void      none
 
