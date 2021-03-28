@@ -19,8 +19,8 @@
 
 
 WARN=  # -Wall -Wno-parentheses -Wno-unused-value
-COMPILE=gcc-8 -fopenmp -g ${WARN} -O2                   # command for gcc/Intel
-COMPILE_NO_OPENMP=gcc-8 -g ${WARN} -O2
+COMPILE=gcc -fopenmp -g ${WARN} -O2                  # command for gcc/Intel
+COMPILE_NO_OPENMP=gcc -g ${WARN} -O2
 
 #COMPILE=cc -xopenmp -DASSUME_ATOMIC_READ_CHAR  # command for cc/SPARC
 #COMPILE_NO_OPENMP=cc
